@@ -6,10 +6,11 @@ import { Loader2 } from 'lucide-react'
 export default async function RecordsPage({
     searchParams,
 }: {
-    searchParams: { q?: string; page?: string }
+    searchParams: Promise<{ q?: string; page?: string }>
 }) {
-    const query = searchParams?.q || ''
-    const page = Number(searchParams?.page) || 1
+    const filters = await searchParams
+    const query = filters?.q || ''
+    const page = Number(filters?.page) || 1
 
     const { records, total } = await getRecords(query, page)
 
@@ -23,7 +24,7 @@ export default async function RecordsPage({
             </div>
 
             <Suspense fallback={<div className="flex justify-center p-8"><Loader2 className="animate-spin h-8 w-8 text-emerald-600" /></div>}>
-                <RecordsClient records={records} total={total} searchParams={searchParams} />
+                <RecordsClient records={records} total={total} searchParams={filters} />
             </Suspense>
         </div>
     )

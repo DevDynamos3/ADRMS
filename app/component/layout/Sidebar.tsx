@@ -10,9 +10,10 @@ interface SidebarProps {
   isOpen: boolean;
   onClose: () => void;
   navLinks: { name: string; href: string }[];
+  isLoggedIn?: boolean;
 }
 
-export default function Sidebar({ isOpen, onClose, navLinks }: SidebarProps) {
+export default function Sidebar({ isOpen, onClose, navLinks, isLoggedIn }: SidebarProps) {
   return (
     <AnimatePresence>
       {isOpen && (
@@ -63,11 +64,11 @@ export default function Sidebar({ isOpen, onClose, navLinks }: SidebarProps) {
 
             <div className="p-6 border-t border-gray-100 bg-gray-50/50">
               <Link
-                href="/login"
+                href={isLoggedIn ? "/dashboard" : "/login"}
                 className="flex items-center justify-center w-full px-4 py-3 bg-emerald-600 text-white rounded-lg font-semibold shadow-sm hover:bg-emerald-700 active:transform active:scale-95 transition-all"
                 onClick={onClose}
               >
-                <span>Admin Login</span>
+                <span>{isLoggedIn ? "Go to Dashboard" : "Admin Login"}</span>
                 <ArrowRight className="w-4 h-4 ml-2" />
               </Link>
             </div>

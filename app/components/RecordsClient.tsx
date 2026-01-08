@@ -51,34 +51,45 @@ export default function RecordsClient({
     }
 
     return (
-        <div className="space-y-4">
-            <div className="flex flex-col sm:flex-row justify-between gap-4 bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-                <div className="relative flex-1 max-w-md">
-                    <input
-                        type="text"
-                        placeholder="Search records..."
-                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-emerald-500 focus:border-emerald-500"
-                        value={searchTerm}
-                        onChange={(e) => handleSearch(e.target.value)}
-                    />
-                    <Search className="absolute left-3 top-2.5 h-5 w-5 text-gray-400" />
-                </div>
+        <div className="space-y-6">
+            {/* Contextual Header */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
+                    <div className="flex-1">
+                        <h2 className="text-xl font-bold text-gray-900">Financial Ledger</h2>
+                        <p className="text-sm text-gray-500 mt-1">
+                            Search, filter, and manage all collection receipts. All changes are synced in real-time.
+                        </p>
+                    </div>
 
-                <div className="flex gap-2">
-                    <button
-                        onClick={() => setIsNewModalOpen(true)}
-                        className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-emerald-600 hover:bg-emerald-700 shadow-sm"
-                    >
-                        <Plus className="h-4 w-4 mr-2" />
-                        New Record
-                    </button>
-                    <button
-                        onClick={exportExcel}
-                        className="inline-flex items-center px-4 py-2 border border-emerald-200 text-sm font-medium rounded-md text-emerald-700 bg-emerald-50 hover:bg-emerald-100 shadow-sm"
-                    >
-                        <Download className="h-4 w-4 mr-2" />
-                        Export
-                    </button>
+                    <div className="flex flex-wrap gap-3 w-full lg:w-auto">
+                        <div className="relative flex-1 min-w-[300px]">
+                            <input
+                                type="text"
+                                placeholder="Search by name or receipt #..."
+                                className="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all text-sm outline-none"
+                                value={searchTerm}
+                                onChange={(e) => handleSearch(e.target.value)}
+                            />
+                            <Search className="absolute left-4 top-3.5 h-5 w-5 text-gray-400" />
+                        </div>
+
+                        <button
+                            onClick={() => setIsNewModalOpen(true)}
+                            className="inline-flex items-center px-5 py-3 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 transition-all shadow-md hover:shadow-lg active:scale-95 text-sm font-semibold"
+                        >
+                            <Plus className="h-4 w-4 mr-2" />
+                            New Record
+                        </button>
+
+                        <button
+                            onClick={exportExcel}
+                            className="inline-flex items-center px-5 py-3 bg-white border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-all shadow-sm text-sm font-semibold"
+                        >
+                            <Download className="h-4 w-4 mr-2 text-emerald-600" />
+                            Export Excel
+                        </button>
+                    </div>
                 </div>
             </div>
 

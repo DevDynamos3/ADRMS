@@ -22,8 +22,16 @@ export default function Header() {
     const [isOpen, setIsOpen] = useState(false);
     const { scrollY } = useScroll();
     const [isScrolled, setIsScrolled] = useState(false);
+    const [isLoggedIn, setIsLoggedIn] = useState(false);
 
     useEffect(() => {
+        const checkAuth = async () => {
+            // Check if session cookie exists as a quick client-side check
+            const hasSession = document.cookie.includes('session');
+            setIsLoggedIn(hasSession);
+        };
+        checkAuth();
+
         return scrollY.onChange((latest) => {
             setIsScrolled(latest > 50);
         });
@@ -51,8 +59,8 @@ export default function Header() {
         <>
             <motion.header
                 className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${isScrolled
-                        ? "bg-white/80 backdrop-blur-md shadow-sm border-b border-gray-100 py-3"
-                        : "bg-white py-5 border-b border-transparent"
+                    ? "bg-white/80 backdrop-blur-md shadow-sm border-b border-gray-100 py-3"
+                    : "bg-white py-5 border-b border-transparent"
                     }`}
                 initial={{ y: -100 }}
                 animate={{ y: 0 }}
@@ -84,13 +92,13 @@ export default function Header() {
                     {/* Actions */}
                     <div className="hidden lg:flex items-center gap-4">
                         <Link
-                            href="/login"
+                            href={isLoggedIn ? "/dashboard" : "/login"}
                             className={`px-5 py-2.5 rounded-lg text-sm font-semibold transition-all duration-300 transform hover:-translate-y-0.5 ${isScrolled
-                                    ? "bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm"
-                                    : "bg-gray-900 text-white hover:bg-black shadow-lg"
+                                ? "bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm"
+                                : "bg-gray-900 text-white hover:bg-black shadow-lg"
                                 }`}
                         >
-                            Admin Login
+                            {isLoggedIn ? "Go to Dashboard" : "Admin Login"}
                         </Link>
                     </div>
 
@@ -112,6 +120,7 @@ export default function Header() {
                 isOpen={isOpen}
                 onClose={() => setIsOpen(false)}
                 navLinks={navLinks}
+                isLoggedIn={isLoggedIn}
             />
         </>
     );

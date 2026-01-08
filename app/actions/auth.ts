@@ -34,7 +34,14 @@ export async function loginAction(prevState: any, formData: FormData) {
     }
 
     const expires = new Date(Date.now() + 24 * 60 * 60 * 1000)
-    const session = await encrypt({ user: { id: user.id, email: user.email, name: user.name } })
+    const session = await encrypt({
+        user: {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            role: user.role
+        }
+    })
 
     const cookieStore = await cookies()
     cookieStore.set('session', session, { expires, httpOnly: true })

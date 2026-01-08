@@ -13,9 +13,7 @@ export default function AboutSystem() {
   ];
 
   return (
-    <section id="features" className="relative w-full bg-gray-50 py-24 overflow-hidden">
-      {/* Background Pattern */}
-      <div className="absolute inset-0 opacity-[0.03] bg-[radial-gradient(#000_1px,transparent_1px)] [background-size:16px_16px]"></div>
+    <section id="features" className="relative w-full bg-transparent py-24 overflow-hidden">
 
       <div className="relative max-w-7xl mx-auto px-6 lg:px-8">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 items-center">

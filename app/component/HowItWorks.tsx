@@ -32,7 +32,7 @@ const steps = [
 
 export default function HowItWorks() {
     return (
-        <section id="how-it-works" className="py-24 bg-white">
+        <section id="how-it-works" className="py-24 bg-transparent">
             <div className="max-w-7xl mx-auto px-6 lg:px-8">
                 <div className="text-center mb-16">
                     <h2 className="text-3xl font-bold text-gray-900 sm:text-4xl mb-4">
@@ -53,8 +53,8 @@ export default function HowItWorks() {
                             viewport={{ once: true }}
                             className="relative group"
                         >
-                            <div className="bg-gray-50 rounded-2xl p-8 hover:shadow-lg transition-shadow duration-300 h-full border border-gray-100">
-                                <div className={`w-14 h-14 rounded-xl ${step.color} flex items-center justify-center mb-6 shadow-md transform group-hover:scale-110 transition-transform duration-300`}>
+                            <div className="bg-white/40 backdrop-blur-sm rounded-3xl p-8 hover:shadow-xl transition-all duration-300 h-full border border-white/50 group-hover:bg-white/60">
+                                <div className={`w-14 h-14 rounded-2xl ${step.color} flex items-center justify-center mb-6 shadow-lg shadow-${step.color.split('-')[1]}-200/50 transform group-hover:scale-110 transition-transform duration-300`}>
                                     {step.icon}
                                 </div>
                                 <h3 className="text-xl font-bold text-gray-900 mb-3">

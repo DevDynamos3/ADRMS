@@ -6,11 +6,7 @@ import { ArrowRight, ShieldCheck } from "lucide-react";
 
 export default function Hero() {
   return (
-    <section className="relative w-full bg-white pt-24 pb-32 overflow-hidden">
-
-      {/* Background Decor */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-[500px] bg-gradient-to-b from-gray-50 to-white -z-10"></div>
-      <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-emerald-50/50 rounded-full blur-[100px] -z-10 opacity-60"></div>
+    <section className="relative w-full bg-transparent pt-24 pb-32 overflow-hidden">
 
       <div className="relative max-w-7xl mx-auto px-6 md:px-12 lg:px-8 text-center">
 

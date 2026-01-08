@@ -1,71 +1,39 @@
-import Link from 'next/link'
-import { logoutAction } from '@/app/actions/auth'
-import { LayoutDashboard, FileSpreadsheet, LogOut, User } from 'lucide-react'
+import { getSession } from '@/lib/session'
+import DashboardHeader from '@/app/components/DashboardHeader'
+import BackNavigator from '@/app/components/BackNavigator'
 
-export default function AdminLayout({
+export default async function AdminLayout({
     children,
 }: {
     children: React.ReactNode
 }) {
+    const session = await getSession()
+
     return (
-        <div className="min-h-screen bg-gray-50 flex flex-col">
-            {/* Top Navigation Bar - Excel Style */}
-            <nav className="bg-emerald-700 text-white shadow-sm">
+        <div className="min-h-screen bg-[#F9FAFB] flex flex-col font-sans antialiased">
+            <DashboardHeader session={session} />
+            <BackNavigator />
+
+            {/* Main Content Area */}
+            <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                <div className="animate-in fade-in slide-in-from-bottom-2 duration-500">
+                    {children}
+                </div>
+            </main>
+
+            {/* Simple Footer */}
+            <footer className="mt-auto border-t border-gray-200 bg-white py-6">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                    <div className="flex justify-between h-14 items-center">
-                        <div className="flex items-center space-x-8">
-                            <Link href="/dashboard" className="flex items-center space-x-2 font-bold text-xl tracking-tight">
-                                <FileSpreadsheet className="h-6 w-6" />
-                                <span>ADRMS</span>
-                            </Link>
-
-                            <div className="hidden md:flex space-x-1">
-                                <Link
-                                    href="/dashboard"
-                                    className="px-3 py-2 rounded-t-md text-sm font-medium hover:bg-emerald-600 transition-colors flex items-center space-x-1 bg-emerald-800/50"
-                                >
-                                    <LayoutDashboard className="h-4 w-4" />
-                                    <span>Dashboard</span>
-                                </Link>
-                                <Link
-                                    href="/dashboard/records"
-                                    className="px-3 py-2 rounded-t-md text-sm font-medium hover:bg-emerald-600 transition-colors flex items-center space-x-1"
-                                >
-                                    <FileSpreadsheet className="h-4 w-4" />
-                                    <span>Records</span>
-                                </Link>
-                            </div>
-                        </div>
-
-                        <div className="flex items-center space-x-4">
-                            <div className="flex items-center space-x-2 text-sm">
-                                <div className="h-8 w-8 rounded-full bg-emerald-800 flex items-center justify-center">
-                                    <User className="h-4 w-4" />
-                                </div>
-                                <span className="hidden sm:inline">Admin</span>
-                            </div>
-                            <form action={logoutAction}>
-                                <button type="submit" className="text-emerald-100 hover:text-white p-1 rounded hover:bg-emerald-600 transition-colors">
-                                    <LogOut className="h-5 w-5" />
-                                </button>
-                            </form>
+                    <div className="flex flex-col md:flex-row justify-between items-center text-sm text-gray-500 gap-4">
+                        <p>© {new Date().getFullYear()} Ahmadiyyah Record Management System. All rights reserved.</p>
+                        <div className="flex space-x-6">
+                            <span className="hover:text-emerald-600 cursor-pointer transition-colors">Documentation</span>
+                            <span className="hover:text-emerald-600 cursor-pointer transition-colors">Support</span>
                         </div>
                     </div>
                 </div>
-            </nav>
-
-            {/* Toolbar / Actions Bar (Optional, can be per page) */}
-            <div className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-10">
-                <div className="max-w-7xl mx-auto px-4 py-2 sm:px-6 lg:px-8 flex items-center space-x-2 text-sm text-gray-600 overflow-x-auto">
-                    {/* This area can be populated by page specific portals or just static common tools if needed */}
-                    <span className="font-mono text-xs text-gray-400">Ready</span>
-                </div>
-            </div>
-
-            {/* Main Content */}
-            <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-                {children}
-            </main>
+            </footer>
         </div>
     )
 }
+
