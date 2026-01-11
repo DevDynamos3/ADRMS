@@ -117,13 +117,13 @@ export default function AboutSystem() {
                         <tr>
                           <td className="px-3 py-2 text-gray-600">Jan 16</td>
                           <td className="px-3 py-2 font-medium text-gray-800">Yusuf Sodiq</td>
-                          <td className="px-3 py-2 text-gray-500"><span className="px-1.5 py-0.5 bg-purple-50 text-purple-600 rounded">Waqf Jadid</span></td>
-                          <td className="px-3 py-2 text-gray-800 font-medium text-right">₦ 10,000</td>
+                          <td className="px-3 py-2 text-gray-500"><span className="px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded">Tajnid</span></td>
+                          <td className="px-3 py-2 text-gray-800 font-medium text-right">---</td>
                         </tr>
                         <tr>
                           <td className="px-3 py-2 text-gray-600">Jan 18</td>
                           <td className="px-3 py-2 font-medium text-gray-800">Ibrahim K.</td>
-                          <td className="px-3 py-2 text-gray-500"><span className="px-1.5 py-0.5 bg-orange-50 text-orange-600 rounded">Tahrik Jadid</span></td>
+                          <td className="px-3 py-2 text-gray-500"><span className="px-1.5 py-0.5 bg-emerald-50 text-emerald-600 rounded">Chanda Am</span></td>
                           <td className="px-3 py-2 text-gray-800 font-medium text-right">₦ 2,500</td>
                         </tr>
                       </tbody>

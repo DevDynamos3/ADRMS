@@ -23,8 +23,8 @@ export default function Footer() {
                         <h3 className="text-sm font-bold text-gray-900 tracking-wider uppercase mb-4">Platform</h3>
                         <ul className="space-y-3 font-medium">
                             <li><Link href="/" className="text-gray-600 hover:text-emerald-600 transition-colors">Home</Link></li>
-                            <li><Link href="#how-it-works" className="text-gray-600 hover:text-emerald-600 transition-colors">How It Works</Link></li>
-                            <li><Link href="#features" className="text-gray-600 hover:text-emerald-600 transition-colors">Features</Link></li>
+                            <li><Link href="/docs" className="text-gray-600 hover:text-emerald-600 transition-colors">Documentation</Link></li>
+                            <li><Link href="/faq" className="text-gray-600 hover:text-emerald-600 transition-colors">FAQ</Link></li>
                             <li><Link href="/login" className="text-gray-600 hover:text-emerald-600 transition-colors">Admin Login</Link></li>
                         </ul>
                     </div>

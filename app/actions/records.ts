@@ -1,128 +1,315 @@
 'use server'
 
-import { prisma } from '@/lib/db'
+import { getDb } from '@/lib/mongodb'
+import { ObjectId } from 'mongodb'
 import { revalidatePath } from 'next/cache'
 import { z } from 'zod'
+import { getSession } from '@/lib/session'
+import bcrypt from 'bcryptjs'
 
 /**
- * Base schema used for creating records
+ * Zod Schemas for Validation
  */
-const CreateRecordSchema = z.object({
+const ChandaAmSchema = z.object({
+    chandaNumber: z.string().optional(),
     name: z.string().min(1, 'Name is required'),
-    amount: z.coerce.number().min(0, 'Amount must be positive'),
-    date: z.coerce.date(),
-    receiptNumber: z.string().min(1, 'Receipt number is required'),
-    description: z.string().optional(),
-    type: z.string().min(1, 'Type is required'),
+    receiptNo: z.string().optional(),
+    date: z.coerce.date().optional(),
+    monthPaidFor: z.string().optional(),
+    chandaAam: z.coerce.number().default(0),
+    chandaWasiyyat: z.coerce.number().default(0),
+    jalsaSalana: z.coerce.number().default(0),
+    tarikiJadid: z.coerce.number().default(0),
+    waqfiJadid: z.coerce.number().default(0),
+    welfareFund: z.coerce.number().default(0),
+    scholarship: z.coerce.number().default(0),
+    zakatulFitr: z.coerce.number().default(0),
+    tabligh: z.coerce.number().default(0),
+    zakat: z.coerce.number().default(0),
+    sadakat: z.coerce.number().default(0),
+    fitrana: z.coerce.number().default(0),
+    mosqueDonation: z.coerce.number().default(0),
+    mta: z.coerce.number().default(0),
+    centinaryKhilafat: z.coerce.number().default(0),
+    wasiyyatHissanJaidad: z.coerce.number().default(0),
+    bilalFund: z.coerce.number().default(0),
+    yatamaFund: z.coerce.number().default(0),
+    localFund: z.coerce.number().default(0),
+    miscellaneous: z.coerce.number().default(0),
+    maryamFund: z.coerce.number().default(0),
+    totalNgn: z.coerce.number().default(0),
+})
+
+const TajnidSchema = z.object({
+    sn: z.string().optional(),
+    surname: z.string().min(1, 'Surname is required'),
+    otherNames: z.string().optional(),
+    title: z.string().optional(),
+    majlis: z.string().optional(),
+    refName: z.string().optional(),
+    chandaNo: z.string().optional(),
+    wasiyyatNo: z.string().optional(),
+    presence: z.string().optional(),
+    family: z.string().optional(),
+    election: z.string().optional(),
+    updatedOnPortal: z.string().optional(),
+    academicStatus: z.string().optional(),
+    dateOfBirth: z.coerce.date().optional(),
+    email: z.string().email().optional().or(z.literal('')),
+    address: z.string().optional(),
+    phone: z.string().optional(),
 })
 
 /**
- * Schema used for updating records
- * NOTE: id is NOT included and receiptNumber is excluded by default
+ * Fetch Chanda Am Records
  */
-const UpdateRecordSchema = CreateRecordSchema.omit({
-    receiptNumber: true,
-})
+export async function getChandaAmRecords(query?: string, page = 1, limit = 20, filters?: { month?: string, orgId?: string }) {
+    const session = await getSession()
+    if (!session) return { records: [], total: 0, totalPages: 0 }
 
-export async function getRecords(query?: string, page = 1, limit = 50) {
     const skip = (page - 1) * limit
+    const db = await getDb()
 
-    const where = query
-        ? {
-              OR: [
-                  { name: { contains: query } },
-                  { receiptNumber: { contains: query } },
-              ],
-          }
-        : {}
+    const match: any = {}
+    if (session.user.role === 'STANDARD_ADMIN') {
+        match.organizationId = new ObjectId(session.user.organizationId)
+    } else if (filters?.orgId) {
+        match.organizationId = new ObjectId(filters.orgId)
+    }
+
+    if (filters?.month) {
+        match.monthPaidFor = filters.month
+    }
+
+    if (query) {
+        match.$or = [
+            { name: { $regex: query, $options: 'i' } },
+            { chandaNumber: { $regex: query, $options: 'i' } },
+            { receiptNo: { $regex: query, $options: 'i' } },
+        ]
+    }
+
+    const pipeline = [
+        { $match: match },
+        {
+            $lookup: {
+                from: 'Organization',
+                localField: 'organizationId',
+                foreignField: '_id',
+                as: 'organization'
+            }
+        },
+        { $unwind: { path: '$organization', preserveNullAndEmptyArrays: true } },
+        { $sort: { createdAt: -1 as const } },
+        { $skip: skip },
+        { $limit: limit }
+    ]
 
     const [records, total] = await Promise.all([
-        prisma.record.findMany({
-            where,
-            orderBy: { createdAt: 'desc' },
-            skip,
-            take: limit,
-        }),
-        prisma.record.count({ where }),
+        db.collection('ChandaAm').aggregate(pipeline).toArray(),
+        db.collection('ChandaAm').countDocuments(match)
     ])
 
     return {
-        records,
+        records: JSON.parse(JSON.stringify(records)),
         total,
         totalPages: Math.ceil(total / limit),
     }
 }
 
-export async function createRecord(prevState: any, formData: FormData) {
-    const rawData = Object.fromEntries(formData.entries())
-    const result = CreateRecordSchema.safeParse(rawData)
+/**
+ * Fetch Tajnid Records
+ */
+export async function getTajnidRecords(query?: string, page = 1, limit = 20, filters?: { majlis?: string, orgId?: string }) {
+    const session = await getSession()
+    if (!session) return { records: [], total: 0, totalPages: 0 }
 
-    if (!result.success) {
-        return {
-            success: false,
-            errors: result.error.flatten().fieldErrors,
-            message: 'Validation failed',
-        }
+    const skip = (page - 1) * limit
+    const db = await getDb()
+
+    const match: any = {}
+    if (session.user.role === 'STANDARD_ADMIN') {
+        match.organizationId = new ObjectId(session.user.organizationId)
+    } else if (filters?.orgId) {
+        match.organizationId = new ObjectId(filters.orgId)
     }
 
-    const { name, amount, date, receiptNumber, description, type } = result.data
+    if (filters?.majlis) {
+        match.majlis = filters.majlis
+    }
+
+    if (query) {
+        match.$or = [
+            { surname: { $regex: query, $options: 'i' } },
+            { otherNames: { $regex: query, $options: 'i' } },
+            { chandaNo: { $regex: query, $options: 'i' } },
+            { email: { $regex: query, $options: 'i' } },
+        ]
+    }
+
+    const pipeline = [
+        { $match: match },
+        {
+            $lookup: {
+                from: 'Organization',
+                localField: 'organizationId',
+                foreignField: '_id',
+                as: 'organization'
+            }
+        },
+        { $unwind: { path: '$organization', preserveNullAndEmptyArrays: true } },
+        { $sort: { createdAt: -1 as const } },
+        { $skip: skip },
+        { $limit: limit }
+    ]
+
+    const [records, total] = await Promise.all([
+        db.collection('TajnidRecord').aggregate(pipeline).toArray(),
+        db.collection('TajnidRecord').countDocuments(match)
+    ])
+
+    return {
+        records: JSON.parse(JSON.stringify(records)),
+        total,
+        totalPages: Math.ceil(total / limit),
+    }
+}
+
+export async function getTajnidMember(id: string) {
+    const session = await getSession()
+    if (!session) return null
+
+    const db = await getDb()
+    const record = await db.collection('TajnidRecord').aggregate([
+        { $match: { _id: new ObjectId(id) } },
+        {
+            $lookup: {
+                from: 'Organization',
+                localField: 'organizationId',
+                foreignField: '_id',
+                as: 'organization'
+            }
+        },
+        { $unwind: { path: '$organization', preserveNullAndEmptyArrays: true } }
+    ]).next()
+
+    return record ? JSON.parse(JSON.stringify(record)) : null
+}
+
+/**
+ * Create a new Chanda Am Record
+ */
+export async function createChandaAmRecord(formData: FormData) {
+    const session = await getSession()
+    if (!session || !session.user.organizationId) return { success: false, message: 'Unauthorized' }
+
+    const rawData = Object.fromEntries(formData.entries())
+    const result = ChandaAmSchema.safeParse(rawData)
+
+    if (!result.success) {
+        return { success: false, errors: result.error.flatten().fieldErrors, message: 'Validation failed' }
+    }
 
     try {
-        // Generate serial number manually
-        const lastRecord = await prisma.record.findFirst({
-            orderBy: { serialNumber: 'desc' },
-            select: { serialNumber: true },
-        })
-
-        const serialNumber = (lastRecord?.serialNumber || 0) + 1
-
-        await prisma.record.create({
-            data: {
-                name,
-                amount,
-                date,
-                receiptNumber,
-                description,
-                type,
-                serialNumber,
-            },
+        const db = await getDb()
+        await db.collection('ChandaAm').insertOne({
+            ...result.data,
+            organizationId: new ObjectId(session.user.organizationId),
+            adminId: new ObjectId(session.user.id),
+            createdAt: new Date(),
+            updatedAt: new Date(),
         })
 
         revalidatePath('/dashboard/records')
         revalidatePath('/dashboard')
-
         return { success: true, message: 'Record created successfully' }
-    } catch (error: any) {
-        if (error.code === 'P2002') {
-            return { success: false, message: 'Receipt number already exists' }
-        }
-
+    } catch (error) {
+        console.error(error)
         return { success: false, message: 'Failed to create record' }
     }
 }
 
-export async function updateRecord(id: string, formData: FormData) {
+/**
+ * Create a new Tajnid Record
+ */
+export async function createTajnidRecord(formData: FormData) {
+    const session = await getSession()
+    if (!session || !session.user.organizationId) return { success: false, message: 'Unauthorized' }
+
     const rawData = Object.fromEntries(formData.entries())
-    const result = UpdateRecordSchema.safeParse(rawData)
+    const result = TajnidSchema.safeParse(rawData)
 
     if (!result.success) {
-        return {
-            success: false,
-            errors: result.error.flatten().fieldErrors,
-        }
+        return { success: false, errors: result.error.flatten().fieldErrors, message: 'Validation failed' }
     }
 
     try {
-        await prisma.record.update({
-            where: { id },
-            data: result.data,
+        const db = await getDb()
+        await db.collection('TajnidRecord').insertOne({
+            ...result.data,
+            organizationId: new ObjectId(session.user.organizationId),
+            adminId: new ObjectId(session.user.id),
+            createdAt: new Date(),
+            updatedAt: new Date(),
         })
 
         revalidatePath('/dashboard/records')
         revalidatePath('/dashboard')
-
-        return { success: true, message: 'Updated successfully' }
+        return { success: true, message: 'Record created successfully' }
     } catch (error) {
-        return { success: false, message: 'Update failed' }
+        console.error(error)
+        return { success: false, message: 'Failed to create record' }
+    }
+}
+
+/**
+ * Organization and Admin Management (Super Admin only)
+ */
+export async function getOrganizations() {
+    const db = await getDb()
+    return await db.collection('Organization').find().sort({ name: 1 }).toArray()
+}
+
+export async function createStandardAdminAction(fullName: string, organizationName: string, passwordNumber: string) {
+    const session = await getSession()
+    if (!session || session.user.role !== 'SUPER_ADMIN') {
+        return { success: false, message: 'Only Super Admin can create standard admins' }
+    }
+
+    try {
+        const db = await getDb()
+        const plainPassword = `${organizationName}${passwordNumber}`
+        const hashedPassword = await bcrypt.hash(plainPassword, 10)
+
+        // Check/Create organization
+        let org = await db.collection('Organization').findOne({ name: organizationName })
+
+        if (!org) {
+            const orgResult = await db.collection('Organization').insertOne({
+                name: organizationName,
+                createdAt: new Date(),
+                updatedAt: new Date(),
+            })
+            org = { _id: orgResult.insertedId, name: organizationName } as any
+        }
+
+        // Create user with a generated email based on organization name
+        const email = `${organizationName.toLowerCase().replace(/\s+/g, '')}${passwordNumber}@jamaat.com`
+
+        await db.collection('User').insertOne({
+            email,
+            password: hashedPassword,
+            name: fullName,
+            role: 'STANDARD_ADMIN',
+            organizationId: org!._id,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+        })
+
+        revalidatePath('/dashboard/users')
+        return { success: true, message: `Admin created for ${organizationName}. Email: ${email}` }
+    } catch (error: any) {
+        if (error.code === 11000) return { success: false, message: 'Admin with this name/email/organization already exists' }
+        return { success: false, message: 'Failed to create admin' }
     }
 }

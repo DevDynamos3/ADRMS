@@ -3,31 +3,127 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = "file:./dev.db"
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPER_ADMIN
+  STANDARD_ADMIN
 }
 
 model User {
-  id        Int      @id @default(autoincrement())
-  email     String   @unique
-  password  String
-  name      String?
-  role      String   @default("admin")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id             String        @id @default(auto()) @map("_id") @db.ObjectId
+  email          String        @unique
+  password       String
+  name           String?
+  role           Role          @default(STANDARD_ADMIN)
+  organizationId String?       @db.ObjectId
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+  
+  // Relations to records they created
+  tajnidRecords   TajnidRecord[]
+  chandaAmRecords ChandaAm[]
+
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 }
 
-model Record {
-  id            Int      @id @default(autoincrement())
-  serialNumber  Int
-  receiptNumber String   @unique
-  name          String
-  amount        Float
-  date          DateTime
-  description   String?
-  type          String
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+model Organization {
+  id              String         @id @default(auto()) @map("_id") @db.ObjectId
+  name            String         @unique // e.g., "Lagos Jamaat"
+  admins          User[]
+  tajnidRecords   TajnidRecord[]
+  chandaAmRecords ChandaAm[]
+  
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+}
 
-  @@index([name])
+// Chanda Returns - Aggregated from "Schedule" and "Data" sheets
+// User called this ChandaAm
+model ChandaAm {
+  id                    String   @id @default(auto()) @map("_id") @db.ObjectId
+  
+  // Ownership
+  organizationId        String   @db.ObjectId
+  organization          Organization @relation(fields: [organizationId], references: [id])
+  adminId               String   @db.ObjectId
+  admin                 User         @relation(fields: [adminId], references: [id])
+
+  // Original Fields preserved
+  chandaNumber          String?
+  name                  String?
+  receiptNo             String?
+  date                  DateTime?
+  monthPaidFor          String?
+  chandaAam             Float?   @default(0)
+  chandaWasiyyat        Float?   @default(0)
+  jalsaSalana           Float?   @default(0)
+  tarikiJadid           Float?   @default(0)
+  waqfiJadid            Float?   @default(0)
+  welfareFund           Float?   @default(0)
+  scholarship           Float?   @default(0)
+  zakatulFitr           Float?   @default(0)
+  tabligh               Float?   @default(0)
+  zakat                 Float?   @default(0)
+  sadakat               Float?   @default(0)
+  fitrana               Float?   @default(0)
+  mosqueDonation        Float?   @default(0)
+  mta                   Float?   @default(0)
+  centinaryKhilafat     Float?   @default(0)
+  wasiyyatHissanJaidad Float?   @default(0)
+  bilalFund             Float?   @default(0)
+  yatamaFund            Float?   @default(0)
+  localFund             Float?   @default(0)
+  miscellaneous         Float?   @default(0)
+  maryamFund            Float?   @default(0)
+  totalNgn              Float?   @default(0)
+  
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([chandaNumber])
+  @@index([receiptNo])
+  @@index([organizationId])
+  @@index([adminId])
+}
+
+// Tajnid (Membership Records) - From "TAJNID" sheet
+model TajnidRecord {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+
+  // Ownership
+  organizationId  String   @db.ObjectId
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  adminId         String   @db.ObjectId
+  admin           User         @relation(fields: [adminId], references: [id])
+
+  // Original Fields preserved
+  sn              String?
+  surname         String?
+  otherNames      String?
+  title           String?
+  majlis          String?
+  refName         String?
+  chandaNo        String?
+  wasiyyatNo      String?
+  presence        String?
+  family          String?
+  election        String?
+  updatedOnPortal String?
+  academicStatus  String?
+  dateOfBirth     DateTime?
+  email           String?
+  address         String?
+  phone           String?
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([chandaNo])
+  @@index([wasiyyatNo])
+  @@index([email])
+  @@index([organizationId])
+  @@index([adminId])
 }

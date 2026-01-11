@@ -1,65 +1,82 @@
-
-import { PrismaClient } from '@prisma/client'
+import { getDb } from '../lib/mongodb'
 import bcrypt from 'bcryptjs'
 
-const prisma = new PrismaClient()
-
-/**
- * Main function to seed the database with initial admin users.
- * It hashes passwords and uses prisma.user.upsert to ensure users exist
- * without creating duplicates if the script is run multiple times.
- */
 async function main() {
-  // Hash the default admin password
+  const db = await getDb()
   const password = await bcrypt.hash('adrms.admin123', 10)
 
-  // Upsert the primary admin user
-  const upsertUser = await prisma.user.upsert({
-    where: { email: 'admin@adrms.com' },
-    update: {},
-    create: {
-      email: 'admin@adrms.com',
-      name: 'Admin',
-      role: 'admin',
-      password,
-    },
-  })
+  console.log('Seed started...')
 
-  console.log({ upsertUser })
-
-  // Hash a second admin password for a developer/specific admin account
-  const newAdminPassword = await bcrypt.hash('adeyemi001', 10)
-
-  // Upsert the second admin user or update their password/role if they already exist
-  const newAdmin = await prisma.user.upsert({
-    where: { email: 'adeyemicodes@gmail.com' },
-    update: {
-      password: newAdminPassword,
-      role: 'super_admin',
+  // Create a default organization for the seed admin
+  // Using findOneAndUpdate with upsert: true as an equivalent to prisma.organization.upsert
+  const orgResult = await db.collection('Organization').findOneAndUpdate(
+    { name: 'National Headquarters' },
+    {
+      $setOnInsert: {
+        name: 'National Headquarters',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      }
     },
-    create: {
-      email: 'adeyemicodes@gmail.com',
-      name: 'Adeyemi Admin',
-      role: 'super_admin',
-      password: newAdminPassword,
+    { upsert: true, returnDocument: 'after' }
+  )
+
+  const defaultOrgId = orgResult?._id
+
+  if (!defaultOrgId) {
+    throw new Error('Failed to create or find default organization')
+  }
+
+  // Upsert the primary admin user as SUPER_ADMIN
+  const superAdminPassword = await bcrypt.hash('adrms.admin123', 10)
+  await db.collection('User').findOneAndUpdate(
+    { email: 'admin@adrms.com' },
+    {
+      $set: {
+        role: 'SUPER_ADMIN',
+        organizationId: defaultOrgId,
+        updatedAt: new Date()
+      },
+      $setOnInsert: {
+        email: 'admin@adrms.com',
+        name: 'Super Admin',
+        password: superAdminPassword,
+        createdAt: new Date()
+      }
     },
-  })
-  console.log({ newAdmin })
+    { upsert: true }
+  )
+
+  console.log('Primary Super Admin upserted.')
+
+  const adeyemiPassword = await bcrypt.hash('adeyemi001', 10)
+  await db.collection('User').findOneAndUpdate(
+    { email: 'adeyemicodes@gmail.com' },
+    {
+      $set: {
+        password: adeyemiPassword,
+        role: 'SUPER_ADMIN',
+        organizationId: defaultOrgId,
+        updatedAt: new Date()
+      },
+      $setOnInsert: {
+        email: 'adeyemicodes@gmail.com',
+        name: 'Adeyemi Super Admin',
+        createdAt: new Date()
+      }
+    },
+    { upsert: true }
+  )
+
+  console.log('Adeyemi Super Admin upserted.')
+  console.log('Seed completed successfully.')
 }
 
-/**
- * Execute the main function and handle the database connection lifecycle.
- * Disconnects from the database after completion or on error.
- */
 main()
-  .then(async () => {
-    // Successfully finished seeding, disconnect from the database
-    await prisma.$disconnect()
+  .then(() => {
+    process.exit(0)
   })
-  .catch(async (e) => {
-    // Log any errors that occurred during seeding
+  .catch((e) => {
     console.error(e)
-    // Ensure database disconnection even on failure
-    await prisma.$disconnect()
     process.exit(1)
   })

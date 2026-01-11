@@ -1,48 +1,72 @@
-import { prisma } from '@/lib/db'
-import { FileText, DollarSign, Calendar, TrendingUp, FileSpreadsheet, Plus } from 'lucide-react'
+import { getDb } from '@/lib/mongodb'
+import { ObjectId } from 'mongodb'
+import { FileText, DollarSign, Calendar, TrendingUp, FileSpreadsheet, Plus, Users, Building2 } from 'lucide-react'
 import Link from 'next/link'
+import { getSession } from '@/lib/session'
 
-async function getStats() {
-    const totalRecords = await prisma.record.count()
-    const totalAmount = await prisma.record.aggregate({
-        _sum: {
-            amount: true
-        }
-    })
+async function getStats(session: any) {
+    const isSuperAdmin = session.user.role === 'SUPER_ADMIN'
+    const orgIdString = session.user.organizationId
+    const db = await getDb()
 
-    // Calculate monthly total
+    const match: any = !isSuperAdmin ? { organizationId: new ObjectId(orgIdString) } : {}
+
+    const [totalChanda, totalTajnid] = await Promise.all([
+        db.collection('ChandaAm').countDocuments(match),
+        db.collection('TajnidRecord').countDocuments(match)
+    ])
+
+    // Total Sum of Chanda
+    const sumResult = await db.collection('ChandaAm').aggregate([
+        { $match: match },
+        { $group: { _id: null, total: { $sum: '$totalNgn' } } }
+    ]).toArray()
+    const totalAmount = sumResult[0]?.total || 0
+
+    // Calculate monthly total for Chanda
     const now = new Date()
     const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
-    const monthlyAmount = await prisma.record.aggregate({
-        _sum: { amount: true },
-        where: {
-            date: {
-                gte: firstDayOfMonth
-            }
-        }
-    })
+    const monthlyMatch = { ...match, createdAt: { $gte: firstDayOfMonth } }
+
+    const monthlyResult = await db.collection('ChandaAm').aggregate([
+        { $match: monthlyMatch },
+        { $group: { _id: null, total: { $sum: '$totalNgn' } } }
+    ]).toArray()
+    const currentMonthly = monthlyResult[0]?.total || 0
 
     return {
-        totalRecords,
-        totalAmount: totalAmount._sum.amount || 0,
-        monthlyAmount: monthlyAmount._sum.amount || 0
+        totalRecords: totalChanda,
+        totalTajnid,
+        totalAmount,
+        monthlyAmount: currentMonthly
     }
 }
 
 export default async function DashboardPage() {
-    const stats = await getStats()
+    const session = await getSession()
+    if (!session) return null
+
+    const stats = await getStats(session)
+    const isSuperAdmin = session.user.role === 'SUPER_ADMIN'
 
     return (
         <div className="space-y-8">
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
                 <div>
-                    <h1 className="text-3xl font-bold text-gray-900 tracking-tight">System Overview</h1>
+                    <div className="flex items-center space-x-2 text-emerald-600 mb-2">
+                        <Building2 className="h-5 w-5" />
+                        <span className="font-bold uppercase tracking-wider text-xs">
+                            {isSuperAdmin ? 'Administrative Headquarters' : session.user.organizationName}
+                        </span>
+                    </div>
+                    <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">Jama'at Dashboard</h1>
                     <p className="text-gray-500 mt-1 max-w-2xl">
-                        Welcome back. Here is a summary of the record management system's current performance and recent financial metrics.
+                        Welcome back, <span className="font-bold text-gray-700">{session.user.name}</span>.
+                        Monitoring records for {isSuperAdmin ? 'all Jamaats' : session.user.organizationName}.
                     </p>
                 </div>
                 <div className="flex items-center space-x-3">
-                    <span className="text-xs font-semibold px-2.5 py-1 bg-emerald-100 text-emerald-700 rounded-full uppercase tracking-wider">Live Updates</span>
+                    <span className="hidden sm:inline-block text-xs font-semibold px-2.5 py-1 bg-emerald-100 text-emerald-700 rounded-full uppercase tracking-wider">Live Updates</span>
                     <Link href="/dashboard/records" className="bg-emerald-600 text-white px-5 py-2.5 rounded-xl hover:bg-emerald-700 text-sm font-semibold transition-all shadow-md hover:shadow-lg active:scale-95">
                         Manage Records
                     </Link>
@@ -50,24 +74,31 @@ export default async function DashboardPage() {
             </div>
 
             {/* Stats Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <StatsCard
-                    title="Total Records Collected"
-                    description="Total number of receipts processed by the system to date."
+                    title="Chanda Records"
+                    description="Total Chanda Am financial receipts."
                     value={stats.totalRecords.toLocaleString()}
                     icon={<FileText className="h-6 w-6 text-blue-600" />}
                     color="blue"
                 />
                 <StatsCard
-                    title="Grand Total Amount"
-                    description="The cumulative sum of all financial records stored in the database."
+                    title="Tajnid Records"
+                    description="Total registered members (Touchneet)."
+                    value={stats.totalTajnid.toLocaleString()}
+                    icon={<Users className="h-6 w-6 text-orange-600" />}
+                    color="orange"
+                />
+                <StatsCard
+                    title="Total Collections"
+                    description="Cumulative sum of Chanda Am."
                     value={`₦${stats.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
                     icon={<DollarSign className="h-6 w-6 text-emerald-600" />}
                     color="emerald"
                 />
                 <StatsCard
-                    title="Current Month Total"
-                    description="Total amount collected since the 1st of the current month."
+                    title="Monthly Perf."
+                    description="Total collections this month."
                     value={`₦${stats.monthlyAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
                     icon={<Calendar className="h-6 w-6 text-purple-600" />}
                     color="purple"
@@ -75,66 +106,67 @@ export default async function DashboardPage() {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                {/* Quick Actions - Primary */}
-                <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                    <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+                {/* Operations Panel */}
+                <div className="lg:col-span-2 bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div className="p-8 border-b border-gray-50 flex items-center justify-between bg-gray-50/50">
                         <div>
-                            <h2 className="text-lg font-bold text-gray-900">Operations Panel</h2>
+                            <h2 className="text-xl font-bold text-gray-900">Operations Panel</h2>
                             <p className="text-sm text-gray-500">Quickly add new data or import existing sheets.</p>
                         </div>
-                        <div className="h-8 w-8 rounded-full bg-gray-50 flex items-center justify-center">
-                            <TrendingUp className="h-4 w-4 text-gray-400" />
+                        <div className="h-10 w-10 rounded-2xl bg-white shadow-sm flex items-center justify-center border border-gray-100">
+                            <TrendingUp className="h-5 w-5 text-emerald-500" />
                         </div>
                     </div>
-                    <div className="p-6">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <Link href="/dashboard/records?action=new" className="flex items-center p-4 rounded-xl border border-gray-100 hover:border-emerald-200 hover:bg-emerald-50/50 transition-all group">
-                                <div className="h-12 w-12 rounded-xl bg-emerald-100 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
-                                    <Plus className="h-6 w-6 text-emerald-600" />
+                    <div className="p-8">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                            <Link href="/dashboard/records?action=new" className="flex items-center p-6 rounded-2xl border border-gray-100 hover:border-emerald-200 hover:bg-emerald-50/30 transition-all group">
+                                <div className="h-14 w-14 rounded-2xl bg-emerald-100 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
+                                    <Plus className="h-7 w-7 text-emerald-600" />
                                 </div>
-                                <div className="ml-4">
-                                    <h3 className="text-sm font-bold text-gray-900">New Record Entry</h3>
-                                    <p className="text-xs text-gray-500">Manually input a new receipt into the system.</p>
+                                <div className="ml-5">
+                                    <h3 className="text-base font-bold text-gray-900">Manual Entry</h3>
+                                    <p className="text-xs text-gray-500 mt-1">Add single Chanda or Tajnid record.</p>
                                 </div>
                             </Link>
 
-                            <Link href="/dashboard/upload" className="flex items-center p-4 rounded-xl border border-gray-100 hover:border-blue-200 hover:bg-blue-50/50 transition-all group">
-                                <div className="h-12 w-12 rounded-xl bg-blue-100 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
-                                    <FileSpreadsheet className="h-6 w-6 text-blue-600" />
+                            <Link href="/dashboard/upload" className="flex items-center p-6 rounded-2xl border border-gray-100 hover:border-blue-200 hover:bg-blue-50/30 transition-all group">
+                                <div className="h-14 w-14 rounded-2xl bg-blue-100 flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform">
+                                    <FileSpreadsheet className="h-7 w-7 text-blue-600" />
                                 </div>
-                                <div className="ml-4">
-                                    <h3 className="text-sm font-bold text-gray-900">Excel Import</h3>
-                                    <p className="text-xs text-gray-500">Bulk upload records from an XLSX file.</p>
+                                <div className="ml-5">
+                                    <h3 className="text-base font-bold text-gray-900">Bulk Import</h3>
+                                    <p className="text-xs text-gray-500 mt-1">Upload multi-sheet Excel files.</p>
                                 </div>
                             </Link>
                         </div>
                     </div>
                 </div>
 
-                {/* System Info / Tips */}
-                <div className="bg-emerald-900 rounded-2xl p-6 text-white relative overflow-hidden">
-                    <div className="relative z-10">
-                        <h2 className="text-lg font-bold mb-2">Cloud Syncying</h2>
-                        <p className="text-emerald-100 text-sm mb-4 leading-relaxed">
-                            Your records are securely stored on the cloud. Database snapshots are taken daily to ensure data integrity.
+                {/* Organization Insight */}
+                <div className="bg-gradient-to-br from-emerald-800 to-emerald-950 rounded-3xl p-8 text-white relative overflow-hidden shadow-xl shadow-emerald-900/20">
+                    <div className="relative z-10 h-full flex flex-col">
+                        <div className="mb-6 bg-white/10 w-fit p-3 rounded-2xl backdrop-blur-md">
+                            <Building2 className="h-6 w-6 text-emerald-300" />
+                        </div>
+                        <h2 className="text-2xl font-bold mb-3 tracking-tight">Organization Scope</h2>
+                        <p className="text-emerald-100/80 text-sm mb-6 leading-relaxed">
+                            {isSuperAdmin
+                                ? 'As a Super Admin, you have access to financial metrics across all Jamaats in the federation.'
+                                : `You are managing records exclusively for ${session.user.organizationName}. Data integrity and privacy are maintained.`
+                            }
                         </p>
-                        <ul className="space-y-2 mb-6">
-                            <li className="flex items-center text-xs text-emerald-200">
-                                <span className="h-1 w-1 bg-emerald-400 rounded-full mr-2"></span>
-                                End-to-end encrypted sessions
-                            </li>
-                            <li className="flex items-center text-xs text-emerald-200">
-                                <span className="h-1 w-1 bg-emerald-400 rounded-full mr-2"></span>
-                                Instant Excel exports
-                            </li>
-                            <li className="flex items-center text-xs text-emerald-200">
-                                <span className="h-1 w-1 bg-emerald-400 rounded-full mr-2"></span>
-                                Role-based access control
-                            </li>
-                        </ul>
+                        <div className="mt-auto pt-6 border-t border-white/10">
+                            <div className="flex items-center justify-between text-xs text-emerald-300 font-bold uppercase tracking-widest">
+                                <span>Security Level</span>
+                                <span className="flex items-center">
+                                    <div className="h-1.5 w-1.5 bg-emerald-400 rounded-full mr-2 shadow-[0_0_8px_white]"></div>
+                                    Encrypted
+                                </span>
+                            </div>
+                        </div>
                     </div>
                     {/* Decorative element */}
-                    <div className="absolute -bottom-10 -right-10 h-40 w-40 bg-white/10 rounded-full blur-3xl"></div>
+                    <div className="absolute -bottom-10 -right-10 h-48 w-48 bg-emerald-500/20 rounded-full blur-3xl"></div>
                 </div>
             </div>
         </div>
@@ -142,30 +174,21 @@ export default async function DashboardPage() {
 }
 
 function StatsCard({ title, description, value, icon, color }: { title: string, description: string, value: string, icon: React.ReactNode, color: string }) {
-    const colors: Record<string, string> = {
-        blue: 'text-blue-600 bg-blue-50 border-blue-100',
-        emerald: 'text-emerald-600 bg-emerald-50 border-emerald-100',
-        purple: 'text-purple-600 bg-purple-50 border-purple-100'
-    }
-
     return (
-        <div className={`p-6 rounded-2xl bg-white border border-gray-200 shadow-sm hover:shadow-md transition-shadow`}>
+        <div className="p-6 rounded-3xl bg-white border border-gray-100 shadow-sm hover:shadow-xl hover:translate-y-[-2px] transition-all duration-300">
             <div className="flex items-start justify-between">
-                <div className="p-3 rounded-xl bg-gray-50 border border-gray-100">
+                <div className="p-3 rounded-2xl bg-gray-50/80 border border-gray-100">
                     {icon}
                 </div>
-                <TrendingUp className="h-4 w-4 text-gray-300" />
+                <div className="bg-emerald-50 px-2 py-0.5 rounded text-[10px] font-bold text-emerald-600 uppercase tracking-tighter">Live</div>
             </div>
-            <div className="mt-4">
-                <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">{title}</h3>
-                <p className="mt-1 text-3xl font-extrabold text-gray-900">{value}</p>
-                <p className="mt-2 text-xs text-gray-400 leading-relaxed italic border-l-2 border-gray-100 pl-2">
+            <div className="mt-5">
+                <h3 className="text-xs font-bold text-gray-400 uppercase tracking-widest leading-none mb-1">{title}</h3>
+                <p className="text-3xl font-black text-gray-900 tabular-nums">{value}</p>
+                <p className="mt-3 text-xs text-gray-400 leading-relaxed font-medium">
                     {description}
                 </p>
             </div>
         </div>
     )
 }
-
-
-

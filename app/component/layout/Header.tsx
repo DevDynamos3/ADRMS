@@ -14,8 +14,10 @@ interface NavLinks {
 
 const navLinks: NavLinks[] = [
     { name: "Home", href: "/" },
-    { name: "About System", href: "#features" },
-    { name: "How it Works", href: "#how-it-works" },
+    { name: "About System", href: "/#features" },
+    { name: "How it Works", href: "/#how-it-works" },
+    { name: "Documentation", href: "/docs" },
+    { name: "FAQ", href: "/faq" },
 ];
 
 export default function Header() {

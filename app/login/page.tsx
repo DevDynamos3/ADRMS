@@ -34,15 +34,14 @@ export default function LoginPage() {
                 <form action={formAction} className="mt-8 space-y-6">
                     <div className="rounded-md -space-y-px">
                         <div className="relative">
-                            <label htmlFor="email-address" className="sr-only">Email address</label>
+                            <label htmlFor="identifier" className="sr-only">Email or Jamaat Name</label>
                             <input
-                                id="email-address"
-                                name="email"
-                                type="email"
-                                autoComplete="email"
+                                id="identifier"
+                                name="identifier"
+                                type="text"
                                 required
                                 className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-emerald-500 focus:border-emerald-500 focus:z-10 sm:text-sm"
-                                placeholder="Email address"
+                                placeholder="Email or Jamaat Name"
                             />
                         </div>
                         <div className="relative">
@@ -83,8 +82,8 @@ export default function LoginPage() {
                     {state?.message && (
                         <div className="text-red-500 text-sm text-center">{state.message}</div>
                     )}
-                    {state?.errors?.email && (
-                        <div className="text-red-500 text-sm text-center">{state.errors.email[0]}</div>
+                    {state?.errors?.identifier && (
+                        <div className="text-red-500 text-sm text-center">{state.errors.identifier[0]}</div>
                     )}
                     {state?.errors?.password && (
                         <div className="text-red-500 text-sm text-center">{state.errors.password[0]}</div>

@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Upload, Database, FileSpreadsheet, ShieldCheck } from "lucide-react";
+import { Upload, Database, FileSpreadsheet, ShieldCheck, ArrowRight } from "lucide-react";
 
 const steps = [
     {
@@ -67,6 +67,20 @@ export default function HowItWorks() {
                         </motion.div>
                     ))}
                 </div>
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    viewport={{ once: true }}
+                    className="mt-16 text-center"
+                >
+                    <a
+                        href="/docs"
+                        className="inline-flex items-center px-8 py-4 bg-emerald-600 text-white rounded-2xl font-black text-sm hover:bg-emerald-700 transition-all shadow-xl shadow-emerald-500/20 group"
+                    >
+                        <span>READ FULL DOCUMENTATION</span>
+                        <ArrowRight className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />
+                    </a>
+                </motion.div>
             </div>
         </section>
     );
