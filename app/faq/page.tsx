@@ -186,10 +186,10 @@ export default function FAQPage() {
                     <h2 className="text-3xl font-black mb-4">Still have questions?</h2>
                     <p className="text-gray-400 max-w-lg mx-auto mb-8 font-medium">We're here to help you get the most out of ADRMS. Reach out to our technical support team.</p>
                     <div className="flex flex-wrap items-center justify-center gap-4">
-                        <button className="px-8 py-4 bg-emerald-600 text-white rounded-2xl font-black text-sm hover:bg-emerald-700 transition-all shadow-xl shadow-emerald-500/20 flex items-center">
+                        {/* <button className="px-8 py-4 bg-emerald-600 text-white rounded-2xl font-black text-sm hover:bg-emerald-700 transition-all shadow-xl shadow-emerald-500/20 flex items-center">
                             <MessageCircle className="w-4 h-4 mr-2" />
                             Live Chat
-                        </button>
+                        </button> */}
                         <button className="px-8 py-4 bg-white/10 text-white rounded-2xl font-black text-sm hover:bg-white/20 transition-all backdrop-blur-md">
                             Contact Specialist
                         </button>
