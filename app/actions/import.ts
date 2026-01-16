@@ -48,12 +48,49 @@ export async function bulkInsertChandaAmRecords(data: any[]) {
             totalNgn: Number(item.totalNgn || 0),
             createdAt: new Date(),
             updatedAt: new Date(),
-        }))
+        })).filter(item => {
+            // Filter out empty rows where key fields are missing
+            const hasName = item.name && item.name.trim() !== '';
+            const hasChandaNo = item.chandaNumber && item.chandaNumber.trim() !== '';
+            const hasReceipt = item.receiptNo && item.receiptNo.trim() !== '';
+            // Record is valid if it has at least one identifying field
+            return hasName || hasChandaNo || hasReceipt;
+        })
 
-        const result = await db.collection('ChandaAm').insertMany(items);
+        // Create bulk operations for idempotent insert
+        const bulkOps = items.map(item => {
+            let filter: any = {
+                organizationId: item.organizationId
+            };
+
+            // Use Receipt No as primary unique identifier if available
+            if (item.receiptNo && item.receiptNo.trim() !== '') {
+                filter.receiptNo = item.receiptNo;
+            } else {
+                // Fallback composite key for records without receipt numbers
+                filter.chandaNumber = item.chandaNumber;
+                filter.monthPaidFor = item.monthPaidFor;
+                filter.date = item.date;
+                filter.totalNgn = item.totalNgn;
+            }
+
+            return {
+                updateOne: {
+                    filter,
+                    update: { $setOnInsert: item },
+                    upsert: true
+                }
+            };
+        });
+
+        if (bulkOps.length === 0) {
+            return { success: true, count: 0 };
+        }
+
+        const result = await db.collection('ChandaAm').bulkWrite(bulkOps);
 
         revalidatePath('/dashboard/records');
-        return { success: true, count: result.insertedCount };
+        return { success: true, count: result.upsertedCount };
     } catch (error) {
         console.error('Bulk Chanda Am Import Error:', error);
         return { success: false, error: 'Failed to insert Chanda Am records' };
@@ -93,12 +130,49 @@ export async function bulkInsertTajnidRecords(data: any[]) {
             phone: String(item.phone || ''),
             createdAt: new Date(),
             updatedAt: new Date(),
-        }))
+        })).filter(item => {
+            // Filter out empty rows where key fields are missing
+            const hasSurname = item.surname && item.surname.trim() !== '';
+            const hasOtherNames = item.otherNames && item.otherNames.trim() !== '';
+            const hasChandaNo = item.chandaNo && item.chandaNo.trim() !== '';
+            // Record is valid if it has at least one identifying field
+            return hasSurname || hasOtherNames || hasChandaNo;
+        })
 
-        const result = await db.collection('TajnidRecord').insertMany(items);
+        // Create bulk operations for idempotent insert
+        const bulkOps = items.map(item => {
+            let filter: any = {
+                organizationId: item.organizationId
+            };
+
+            // Use Chanda No as primary unique identifier if available
+            if (item.chandaNo && item.chandaNo.trim() !== '') {
+                filter.chandaNo = item.chandaNo;
+            } else {
+                // Fallback composite key for records without chanda numbers
+                // Using name combination to prevent duplicates
+                filter.surname = item.surname;
+                filter.otherNames = item.otherNames;
+                if (item.phone) filter.phone = item.phone;
+            }
+
+            return {
+                updateOne: {
+                    filter,
+                    update: { $setOnInsert: item },
+                    upsert: true
+                }
+            };
+        });
+
+        if (bulkOps.length === 0) {
+            return { success: true, count: 0 };
+        }
+
+        const result = await db.collection('TajnidRecord').bulkWrite(bulkOps);
 
         revalidatePath('/dashboard/records');
-        return { success: true, count: result.insertedCount };
+        return { success: true, count: result.upsertedCount };
     } catch (error) {
         console.error('Bulk Tajnid Import Error:', error);
         return { success: false, error: 'Failed to insert Tajnid records' };

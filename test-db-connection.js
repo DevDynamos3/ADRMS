@@ -1,5 +1,6 @@
 const { PrismaClient } = require('@prisma/client')
 
+
 const prisma = new PrismaClient({
     log: ['query', 'info', 'warn', 'error'],
 })
@@ -9,9 +10,9 @@ async function testConnection() {
         console.log('Testing database connection...')
 
         // Try a simple query
-        const count = await prisma.record.count()
+        const count = await prisma.user.count()
         console.log('✅ Connection successful!')
-        console.log(`Found ${count} records in the database`)
+        console.log(`Found ${count} users in the database`)
 
     } catch (error) {
         console.error('❌ Connection failed!')

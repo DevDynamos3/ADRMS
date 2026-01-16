@@ -1,0 +1,33 @@
+[
+  {
+    "type": "SRV Records",
+    "data": [
+      {
+        "name": "ac-00mj4w7-shard-00-00.bitk2qm.mongodb.net",
+        "port": 27017,
+        "priority": 0,
+        "weight": 0
+      },
+      {
+        "name": "ac-00mj4w7-shard-00-01.bitk2qm.mongodb.net",
+        "port": 27017,
+        "priority": 0,
+        "weight": 0
+      },
+      {
+        "name": "ac-00mj4w7-shard-00-02.bitk2qm.mongodb.net",
+        "port": 27017,
+        "priority": 0,
+        "weight": 0
+      }
+    ]
+  },
+  {
+    "type": "TXT Records",
+    "data": [
+      [
+        "authSource=admin&replicaSet=atlas-3aikhy-shard-0"
+      ]
+    ]
+  }
+]

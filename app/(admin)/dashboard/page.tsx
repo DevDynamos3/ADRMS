@@ -24,40 +24,66 @@ async function getStats(session: any) {
     ]).toArray()
     const totalAmount = sumResult[0]?.total || 0
 
-    // Calculate monthly total for Chanda
-    const now = new Date()
-    const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
-    const monthlyMatch = { ...match, createdAt: { $gte: firstDayOfMonth } }
+    // Calculate monthly total for Chanda based on monthPaidFor
+    // Get current month in MMMYYYY format (e.g., JAN2026)
+    const currentDate = new Date()
+    const currentMonthAbbr = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'][currentDate.getMonth()]
+    const currentYear = currentDate.getFullYear()
+    const currentMonthYear = `${currentMonthAbbr}${currentYear}`
 
+    // Find all records where monthPaidFor contains the current month
+    // This handles both single month (SEP2024) and multi-month (AUG2024, SEP2024) records
     const monthlyResult = await db.collection('ChandaAm').aggregate([
-        { $match: monthlyMatch },
+        {
+            $match: {
+                ...match,
+                monthPaidFor: {
+                    $regex: `(^|,\\s*)${currentMonthAbbr}${currentYear}(\\s*,|\\s*$)`,
+                    $options: 'i'
+                }
+            }
+        },
         { $group: { _id: null, total: { $sum: '$totalNgn' } } }
     ]).toArray()
     const currentMonthly = monthlyResult[0]?.total || 0
 
-    // Get monthly collections for the last 6 months
-    const sixMonthsAgo = new Date()
-    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5)
-    sixMonthsAgo.setDate(1)
+    // Get monthly collections for the last 6 months based on monthPaidFor
+    const last6Months = []
+    for (let i = 5; i >= 0; i--) {
+        const date = new Date()
+        date.setMonth(date.getMonth() - i)
+        const monthAbbr = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'][date.getMonth()]
+        const year = date.getFullYear()
+        last6Months.push({
+            monthYear: `${monthAbbr}${year}`,
+            monthName: date.toLocaleString('default', { month: 'short' }),
+            monthAbbr,
+            year
+        })
+    }
 
-    const monthlyCollections = await db.collection('ChandaAm').aggregate([
-        { $match: { ...match, createdAt: { $gte: sixMonthsAgo } } },
-        {
-            $group: {
-                _id: {
-                    month: { $month: '$createdAt' },
-                    year: { $year: '$createdAt' }
-                },
-                total: { $sum: '$totalNgn' }
-            }
-        },
-        { $sort: { '_id.year': 1, '_id.month': 1 } }
-    ]).toArray()
+    // Aggregate data for each of the last 6 months
+    const monthlyCollectionsPromises = last6Months.map(async ({ monthYear, monthName, monthAbbr, year }) => {
+        const result = await db.collection('ChandaAm').aggregate([
+            {
+                $match: {
+                    ...match,
+                    monthPaidFor: {
+                        $regex: `(^|,\\s*)${monthAbbr}${year}(\\s*,|\\s*$)`,
+                        $options: 'i'
+                    }
+                }
+            },
+            { $group: { _id: null, total: { $sum: '$totalNgn' } } }
+        ]).toArray()
 
-    const chartData = monthlyCollections.map(item => ({
-        name: new Date(2000, item._id.month - 1).toLocaleString('default', { month: 'short' }),
-        value: item.total
-    }))
+        return {
+            name: monthName,
+            value: result[0]?.total || 0
+        }
+    })
+
+    const chartData = await Promise.all(monthlyCollectionsPromises)
 
     // Get Tajnid composition by Majlis
     const tajnidComposition = await db.collection('TajnidRecord').aggregate([

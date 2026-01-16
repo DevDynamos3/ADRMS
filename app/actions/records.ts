@@ -15,7 +15,11 @@ const ChandaAmSchema = z.object({
     name: z.string().min(1, 'Name is required'),
     receiptNo: z.string().optional(),
     date: z.coerce.date().optional(),
-    monthPaidFor: z.string().optional(),
+    monthPaidFor: z.string().optional().transform(val => {
+        // Support both old format (January) and new format (JAN2024, FEB2024)
+        // This ensures backward compatibility
+        return val
+    }),
     chandaAam: z.coerce.number().default(0),
     chandaWasiyyat: z.coerce.number().default(0),
     jalsaSalana: z.coerce.number().default(0),
@@ -61,6 +65,62 @@ const TajnidSchema = z.object({
 })
 
 /**
+ * Month Normalization Utilities
+ * These helpers enable inclusive month filtering regardless of input format
+ */
+const MONTH_MAP: { [key: string]: string } = {
+    'january': 'JAN', 'jan': 'JAN',
+    'february': 'FEB', 'feb': 'FEB',
+    'march': 'MAR', 'mar': 'MAR',
+    'april': 'APR', 'apr': 'APR',
+    'may': 'MAY',
+    'june': 'JUN', 'jun': 'JUN',
+    'july': 'JUL', 'jul': 'JUL',
+    'august': 'AUG', 'aug': 'AUG',
+    'september': 'SEP', 'sep': 'SEP', 'sept': 'SEP',
+    'october': 'OCT', 'oct': 'OCT',
+    'november': 'NOV', 'nov': 'NOV',
+    'december': 'DEC', 'dec': 'DEC'
+}
+
+/**
+ * Normalize month input to abbreviated format (e.g., September → SEP, SEP2024 → SEP)
+ */
+function normalizeMonth(input: string): string {
+    const cleaned = input.trim().toLowerCase()
+
+    // If it's already in MMMYYYY format, extract just the month part
+    const match = cleaned.match(/^([a-z]+)\d{4}$/)
+    if (match) {
+        const monthPart = match[1]
+        return MONTH_MAP[monthPart] || monthPart.toUpperCase()
+    }
+
+    // Otherwise, try to map it directly
+    return MONTH_MAP[cleaned] || cleaned.toUpperCase()
+}
+
+/**
+ * Check if a monthPaidFor value contains the specified month
+ * Handles comma-separated values and various input formats
+ */
+function monthPaidForIncludes(monthPaidFor: string | null | undefined, searchMonth: string): boolean {
+    if (!monthPaidFor || !searchMonth) return false
+
+    const normalizedSearch = normalizeMonth(searchMonth)
+    const monthPaidForUpper = monthPaidFor.toUpperCase()
+
+    // Split by comma and check each month
+    const months = monthPaidForUpper.split(',').map(m => m.trim())
+
+    return months.some(month => {
+        // Extract month abbreviation from MMMYYYY format
+        const monthAbbr = month.match(/^([A-Z]+)\d{4}$/)?.[1] || month
+        return monthAbbr === normalizedSearch
+    })
+}
+
+/**
  * Fetch Chanda Am Records
  */
 export async function getChandaAmRecords(query?: string, page = 1, limit = 20, filters?: { month?: string, orgId?: string }) {
@@ -78,8 +138,31 @@ export async function getChandaAmRecords(query?: string, page = 1, limit = 20, f
     }
 
     if (filters?.month) {
-        match.monthPaidFor = filters.month
+        // Inclusive month filtering: match records where monthPaidFor contains the specified month
+        // Supports various formats: SEP, September, SEP2024
+        const months = filters.month.split(',').map(m => m.trim()).filter(m => m)
+
+        if (months.length > 0) {
+            // Normalize each search month to abbreviated format
+            const normalizedMonths = months.map(m => normalizeMonth(m))
+
+            // Build regex patterns for each normalized month
+            // This matches the month abbreviation at the start of MMMYYYY format
+            const regexPatterns = normalizedMonths.map(month => {
+                // Escape special regex characters and match month at word boundary
+                const escaped = month.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+                // Match: start of string OR after comma/space, then month, then optional year
+                return `(^|,\\s*)${escaped}(\\d{4})?(\\s*,|\\s*$)`
+            })
+
+            // Combine patterns with OR
+            const combinedPattern = regexPatterns.join('|')
+            match.monthPaidFor = { $regex: combinedPattern, $options: 'i' }
+        }
     }
+
+    // Filter out empty records
+    match.name = { $ne: "" }
 
     if (query) {
         match.$or = [
@@ -120,11 +203,13 @@ export async function getChandaAmRecords(query?: string, page = 1, limit = 20, f
 /**
  * Fetch Tajnid Records
  */
-export async function getTajnidRecords(query?: string, page = 1, limit = 20, filters?: { majlis?: string, orgId?: string }) {
+export async function getTajnidRecords(query?: string, page = 1, limit = 20, filters?: { majlis?: string, orgId?: string, month?: string }) {
     const session = await getSession()
     if (!session) return { records: [], total: 0, totalPages: 0 }
 
-    const skip = (page - 1) * limit
+    // If limit is <= 0, we treat it as "fetch all" (no pagination)
+    const isPaginationEnabled = limit > 0
+    const skip = isPaginationEnabled ? (page - 1) * limit : 0
     const db = await getDb()
 
     const match: any = {}
@@ -135,8 +220,28 @@ export async function getTajnidRecords(query?: string, page = 1, limit = 20, fil
     }
 
     if (filters?.majlis) {
-        match.majlis = filters.majlis
+        if (filters.majlis.toUpperCase() === 'NASRAT') {
+            match.majlis = { $in: ['NASRA', 'NASIRA', 'NASRAT'] }
+        } else if (filters.majlis.toUpperCase() === 'LAJNAH') {
+            match.majlis = { $in: ['LAJNAH', 'LAJNA'] }
+        } else {
+            match.majlis = filters.majlis
+        }
     }
+
+    if (filters?.month) {
+        const monthMap: Record<string, number> = {
+            'January': 1, 'February': 2, 'March': 3, 'April': 4, 'May': 5, 'June': 6,
+            'July': 7, 'August': 8, 'September': 9, 'October': 10, 'November': 11, 'December': 12
+        }
+        const monthIndex = monthMap[filters.month]
+        if (monthIndex) {
+            match.$expr = { $eq: [{ $month: "$createdAt" }, monthIndex] }
+        }
+    }
+
+    // Filter out empty records
+    match.surname = { $ne: "" }
 
     if (query) {
         match.$or = [
@@ -159,9 +264,13 @@ export async function getTajnidRecords(query?: string, page = 1, limit = 20, fil
         },
         { $unwind: { path: '$organization', preserveNullAndEmptyArrays: true } },
         { $sort: { createdAt: -1 as const } },
-        { $skip: skip },
-        { $limit: limit }
     ]
+
+    // Only add pagination stages if limit is positive
+    if (isPaginationEnabled) {
+        pipeline.push({ $skip: skip } as any);
+        pipeline.push({ $limit: limit } as any);
+    }
 
     const [records, total] = await Promise.all([
         db.collection('TajnidRecord').aggregate(pipeline).toArray(),
@@ -171,7 +280,7 @@ export async function getTajnidRecords(query?: string, page = 1, limit = 20, fil
     return {
         records: JSON.parse(JSON.stringify(records)),
         total,
-        totalPages: Math.ceil(total / limit),
+        totalPages: isPaginationEnabled ? Math.ceil(total / limit) : 1,
     }
 }
 
@@ -212,6 +321,27 @@ export async function createChandaAmRecord(formData: FormData) {
 
     try {
         const db = await getDb()
+
+        // Validate that a Tajnid record exists for this member
+        if (result.data.chandaNumber) {
+            const tajnidExists = await db.collection('TajnidRecord').findOne({
+                chandaNo: result.data.chandaNumber,
+                organizationId: new ObjectId(session.user.organizationId)
+            })
+
+            if (!tajnidExists) {
+                return {
+                    success: false,
+                    message: `No Tajnid record found for Chanda Number: ${result.data.chandaNumber}. Please create a Tajnid record first.`
+                }
+            }
+        } else {
+            return {
+                success: false,
+                message: 'Chanda Number is required. Please link this contribution to an existing member.'
+            }
+        }
+
         await db.collection('ChandaAm').insertOne({
             ...result.data,
             organizationId: new ObjectId(session.user.organizationId),
@@ -424,6 +554,36 @@ export async function createMultipleRecords(data: any[], type: 'chanda' | 'tajni
         const collection = type === 'chanda' ? 'ChandaAm' : 'TajnidRecord'
         const schema = type === 'chanda' ? ChandaAmSchema : TajnidSchema
 
+        // For ChandaAm records, validate that Tajnid records exist
+        if (type === 'chanda') {
+            const chandaNumbers = data
+                .map(item => item.chandaNumber)
+                .filter(num => num && num.trim() !== '')
+
+            if (chandaNumbers.length === 0) {
+                return {
+                    success: false,
+                    message: 'All records must have a Chanda Number to link to existing members.'
+                }
+            }
+
+            // Check which Tajnid records exist
+            const existingTajnidRecords = await db.collection('TajnidRecord').find({
+                chandaNo: { $in: chandaNumbers },
+                organizationId: new ObjectId(session.user.organizationId)
+            }).toArray()
+
+            const existingChandaNumbers = new Set(existingTajnidRecords.map(r => r.chandaNo))
+            const missingChandaNumbers = chandaNumbers.filter(num => !existingChandaNumbers.has(num))
+
+            if (missingChandaNumbers.length > 0) {
+                return {
+                    success: false,
+                    message: `Cannot create Chanda records. The following Chanda Numbers do not have Tajnid records: ${missingChandaNumbers.slice(0, 5).join(', ')}${missingChandaNumbers.length > 5 ? ` and ${missingChandaNumbers.length - 5} more` : ''}. Please create Tajnid records first.`
+                }
+            }
+        }
+
         const validatedRecords = data.map(item => {
             const result = schema.safeParse(item)
             if (!result.success) throw new Error('Validation failed for one or more records')
@@ -465,8 +625,28 @@ export async function getAllRecordsForExport(type: 'chanda' | 'tajnid', query?: 
 
     if (type === 'chanda' && filters?.month) {
         match.monthPaidFor = filters.month
-    } else if (type === 'tajnid' && filters?.majlis) {
-        match.majlis = filters.majlis
+    }
+
+    if (type === 'tajnid') {
+        if (filters?.majlis) {
+            if (filters.majlis.toUpperCase() === 'NASRAT') {
+                match.majlis = { $in: ['NASRA', 'NASIRA', 'NASRAT'] }
+            } else if (filters.majlis.toUpperCase() === 'LAJNAH') {
+                match.majlis = { $in: ['LAJNAH', 'LAJNA'] }
+            } else {
+                match.majlis = filters.majlis
+            }
+        }
+        if (filters?.month) {
+            const monthMap: Record<string, number> = {
+                'January': 1, 'February': 2, 'March': 3, 'April': 4, 'May': 5, 'June': 6,
+                'July': 7, 'August': 8, 'September': 9, 'October': 10, 'November': 11, 'December': 12
+            }
+            const monthIndex = monthMap[filters.month]
+            if (monthIndex) {
+                match.$expr = { $eq: [{ $month: "$createdAt" }, monthIndex] }
+            }
+        }
     }
 
     if (query) {

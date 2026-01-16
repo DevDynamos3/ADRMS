@@ -24,10 +24,28 @@ import {
 import { useRouter } from 'next/navigation'
 import * as XLSX from 'xlsx'
 import { motion, AnimatePresence } from 'framer-motion'
-import { createChandaAmRecord, createTajnidRecord, deleteRecords, createMultipleRecords, updateChandaAmRecord, updateTajnidRecord, getAllRecordsForExport } from '../actions/records'
+import { createChandaAmRecord, createTajnidRecord, deleteRecords, createMultipleRecords, updateChandaAmRecord, updateTajnidRecord, getAllRecordsForExport, getTajnidRecords } from '../actions/records'
 
-const MAJLIS_OPTIONS = ['ATFAL', 'KHUDDAM', 'ANSARULLAH', 'LAJNAH', 'NASIRAT']
+const MAJLIS_OPTIONS = ['ATFAL', 'KHUDDAM', 'ANSARULLAH', 'LAJNAH', 'NASRAT']
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+
+// New: Generate month-year options in MMMYYYY format (e.g., JAN2024, FEB2024)
+const MONTH_ABBR = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
+const generateMonthYearOptions = () => {
+    const currentYear = new Date().getFullYear()
+    const options: { value: string, label: string }[] = []
+    // Generate for current year and previous 2 years
+    for (let year = currentYear; year >= currentYear - 2; year--) {
+        for (let i = 0; i < 12; i++) {
+            const value = `${MONTH_ABBR[i]}${year}`
+            const label = `${MONTHS[i]} ${year}`
+            options.push({ value, label })
+        }
+    }
+    return options
+}
+const MONTH_YEAR_OPTIONS = generateMonthYearOptions()
+
 const CHANDA_FUNDS = [
     { id: 'chandaAam', name: "Chanda'Am" },
     { id: 'chandaWasiyyat', name: 'Wasiyyat' },
@@ -51,16 +69,56 @@ const CHANDA_FUNDS = [
     { id: 'maryamFund', name: 'Maryam Fund' },
 ]
 
+// Export column definitions for ChandaAm
+const CHANDA_EXPORT_COLUMNS = [
+    { id: 'receiptNo', label: 'RECEIPT NO' },
+    { id: 'chandaNumber', label: 'CHANDA ID#' },
+    { id: 'name', label: 'NAMES' },
+    { id: 'monthPaidFor', label: 'MonthPaidFor' },
+    { id: 'chandaAam', label: 'Chanda Aam' },
+    { id: 'chandaWasiyyat', label: 'Chanda Wasiyyat' },
+    { id: 'jalsaSalana', label: 'Jalsa Salana' },
+    { id: 'tarikiJadid', label: 'Tariki Jadid' },
+    { id: 'waqfiJadid', label: 'Waqfi Jadid' },
+    { id: 'welfareFund', label: 'Welfare Fund' },
+    { id: 'scholarship', label: 'Scholarships' },
+    { id: 'zakatulFitr', label: 'Zakatul Fitr' },
+    { id: 'tabligh', label: 'Tabligh' },
+    { id: 'zakat', label: 'Zakat' },
+    { id: 'sadakat', label: 'Sadakat' },
+    { id: 'fitrana', label: 'Fitrana' },
+    { id: 'mosqueDonation', label: 'Mosque Donation' },
+    { id: 'mta', label: 'MTA' },
+    { id: 'centinaryKhilafat', label: 'Centinary Khilafat' },
+    { id: 'wasiyyatHissanJaidad', label: 'Wasiyyat Hissan Jaidad' },
+    { id: 'bilalFund', label: 'Bilal Fund' },
+    { id: 'yatamaFund', label: 'Yatama Fund' },
+    { id: 'localFund', label: 'Local Fund' },
+    { id: 'miscellaneous', label: 'Miscellaneous' },
+    { id: 'maryamFund', label: 'Maryam Fund' },
+    { id: 'totalNgn', label: 'Total (NGN)' },
+    { id: 'date', label: 'Date' },
+]
+
 export default function RecordsClient({
     records,
     total,
+    tajnidTotal,
+    chandaTotal,
+    organizations,
     searchParams
 }: {
     records: any[],
     total: number,
-    searchParams: { q?: string, page?: string, type?: string, month?: string, majlis?: string }
+    tajnidTotal?: number,
+    chandaTotal?: number,
+    organizations?: any[],
+    searchParams: { q?: string, page?: string, type?: string, month?: string, majlis?: string, orgId?: string }
 }) {
     const router = useRouter()
+    // Safe defaults
+    const safeTajnidTotal = tajnidTotal || 0
+    const safeChandaTotal = chandaTotal || 0
     const [isPending, startTransition] = useTransition()
     const currentType = searchParams.type || 'chanda'
     const currentPage = Number(searchParams.page) || 1
@@ -75,6 +133,9 @@ export default function RecordsClient({
     const [selectedIds, setSelectedIds] = useState<string[]>([])
     const [isDeleting, setIsDeleting] = useState(false)
     const [isExporting, setIsExporting] = useState(false)
+    const [showExportModal, setShowExportModal] = useState(false)
+    const [exportFilters, setExportFilters] = useState({ month: '', year: '' })
+    const [selectedColumns, setSelectedColumns] = useState<string[]>([])
     const [alertConfig, setAlertConfig] = useState<{
         show: boolean,
         title: string,
@@ -112,6 +173,10 @@ export default function RecordsClient({
 
     const handlePageChange = (page: number) => {
         updateParams({ page: String(page) })
+    }
+
+    const handleOrgChange = (orgId: string) => {
+        updateParams({ orgId: orgId || null, page: '1' })
     }
 
     const handleDeleteSelected = async () => {
@@ -152,37 +217,151 @@ export default function RecordsClient({
         )
     }
 
-    const exportExcel = async () => {
+    const exportExcel = async (customFilters?: { month?: string, year?: string }, customColumns?: string[]) => {
         setIsExporting(true)
         try {
+            // Merge custom filters with current search params
+            const filters: any = {
+                month: customFilters?.month || searchParams.month,
+                majlis: searchParams.majlis
+            }
+
+            // If year is specified, filter by year
+            if (customFilters?.year) {
+                filters.year = customFilters.year
+            }
+
             const allRecords = await getAllRecordsForExport(
                 currentType as any,
                 searchParams.q,
-                { month: searchParams.month, majlis: searchParams.majlis }
+                filters
             )
 
-            // Clean up records for export (remove internal meta fields)
-            const exportData = allRecords.map((record: any) => {
-                const { _id, organizationId, adminId, createdAt, updatedAt, organization, ...clean } = record
-
-                // Format the user-facing date if it exists
-                if (clean.date) {
-                    try {
-                        clean.date = new Date(clean.date).toLocaleDateString('en-GB')
-                    } catch (e) {
-                        // Keep as is if invalid
-                    }
-                }
-
-                // For ChandaAm, we might want to ensure totalNgn is at the end or near the front
-                // but for now, just removing the meta fields is what was requested
-                return clean
+            // Sort records by date to ensure proper grouping
+            const sortedRecords = [...allRecords].sort((a, b) => {
+                const dateA = new Date(a.date || a.createdAt).getTime()
+                const dateB = new Date(b.date || b.createdAt).getTime()
+                return dateA - dateB
             })
 
-            const ws = XLSX.utils.json_to_sheet(exportData)
+            const processedData: any[] = []
+            let currentGroupMonth = ''
+
+            sortedRecords.forEach((record: any) => {
+                const recordDate = new Date(record.date || record.createdAt)
+                const monthYear = recordDate.toLocaleString('default', { month: 'long', year: 'numeric' }).toUpperCase()
+
+                // Add group header if month changes
+                if (monthYear !== currentGroupMonth) {
+                    currentGroupMonth = monthYear
+                    // Add an empty row before new group (except first)
+                    if (processedData.length > 0) {
+                        processedData.push({})
+                    }
+                    // Add Header Row
+                    processedData.push({
+                        'RECEIPT NO': monthYear
+                    })
+                }
+
+                const { _id, organizationId, adminId, createdAt, updatedAt, organization, ...clean } = record
+
+                // Format the user-facing date
+                let formattedDate = ''
+                if (clean.date) {
+                    try {
+                        formattedDate = new Date(clean.date).toLocaleDateString('en-GB')
+                    } catch (e) { }
+                }
+
+                // Format MonthPaidFor
+                let formattedMonthPaidFor = ''
+                if (clean.monthPaidFor && typeof clean.monthPaidFor === 'string') {
+                    formattedMonthPaidFor = clean.monthPaidFor
+                        .split(',')
+                        .map((m: string) => m.trim().toUpperCase())
+                        .join(', ')
+                }
+
+                if (currentType === 'chanda') {
+                    const fullRecord: any = {
+                        'RECEIPT NO': clean.receiptNo || '',
+                        'CHANDA ID#': clean.chandaNumber || '',
+                        'NAMES': clean.name || '',
+                        'MonthPaidFor': formattedMonthPaidFor,
+                        'Chanda Aam': clean.chandaAam || '',
+                        'Chanda Wasiyyat': clean.chandaWasiyyat || '',
+                        'Jalsa Salana': clean.jalsaSalana || '',
+                        'Tariki Jadid': clean.tarikiJadid || '',
+                        'Waqfi Jadid': clean.waqfiJadid || '',
+                        'Welfare Fund': clean.welfareFund || '',
+                        'Scholarships': clean.scholarship || '',
+                        'Zakatul Fitr': clean.zakatulFitr || '',
+                        'Tabligh': clean.tabligh || '',
+                        'Zakat': clean.zakat || '',
+                        'Sadakat': clean.sadakat || '',
+                        'Fitrana': clean.fitrana || '',
+                        'Mosque Donation': clean.mosqueDonation || '',
+                        'MTA': clean.mta || '',
+                        'Centinary Khilafat': clean.centinaryKhilafat || '',
+                        'Wasiyyat Hissan Jaidad': clean.wasiyyatHissanJaidad || '',
+                        'Bilal Fund': clean.bilalFund || '',
+                        'Yatama Fund': clean.yatamaFund || '',
+                        'Local Fund': clean.localFund || '',
+                        'Miscellaneous': clean.miscellaneous || '',
+                        'Maryam Fund': clean.maryamFund || '',
+                        'Total (NGN)': clean.totalNgn || '',
+                        'Date': formattedDate
+                    }
+
+                    // Apply custom columns filter if needed
+                    if (customColumns && customColumns.length > 0) {
+                        const filtered: any = {}
+                        CHANDA_EXPORT_COLUMNS.forEach(col => {
+                            if (customColumns.includes(col.id)) {
+                                filtered[col.label] = fullRecord[col.label]
+                            }
+                        })
+                        processedData.push(filtered)
+                    } else {
+                        processedData.push(fullRecord)
+                    }
+                } else {
+                    processedData.push(clean)
+                }
+            })
+
+            const ws = XLSX.utils.json_to_sheet(processedData)
+
+            // Apply number formatting to data cells (skip headers)
+            const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:A1')
+            for (let R = range.s.r + 1; R <= range.e.r; ++R) {
+                for (let C = range.s.c; C <= range.e.c; ++C) {
+                    const cell_address = XLSX.utils.encode_cell({ r: R, c: C })
+                    const cell = ws[cell_address]
+
+                    if (cell && cell.v !== undefined) {
+                        // Check if value is numeric or logic indicates it should be numeric
+                        // In our map, we replaced 0 with ''. "" is type string.
+                        // But if it is a number (non-zero), we want 2 decimal places.
+                        if (typeof cell.v === 'number') {
+                            cell.z = '#,##0.00'
+                        }
+                    }
+                }
+            }
+
+            // Adjust column widths minimally
+            const wscols = Object.keys(processedData[0] || {}).map(() => ({ wch: 15 }))
+            ws['!cols'] = wscols
+
             const wb = XLSX.utils.book_new()
             XLSX.utils.book_append_sheet(wb, ws, "Export")
-            XLSX.writeFile(wb, `${currentType}_universal_export_${new Date().toISOString().split('T')[0]}.xlsx`)
+
+            const fileName = `${currentType}_export_${customFilters?.year || 'all'}_${customFilters?.month || 'all'}_${new Date().toISOString().split('T')[0]}.xlsx`
+            XLSX.writeFile(wb, fileName)
+
+            setShowExportModal(false)
         } catch (err) {
             console.error(err)
             setAlertConfig({
@@ -197,8 +376,8 @@ export default function RecordsClient({
     }
 
     const tabs = [
-        { id: 'chanda', name: 'ChandaAm', icon: Receipt },
-        { id: 'tajnid', name: 'Tajnid', icon: Users },
+        { id: 'chanda', name: 'ChandaAm', icon: Receipt, count: safeChandaTotal },
+        { id: 'tajnid', name: 'Tajnid', icon: Users, count: safeTajnidTotal },
     ]
 
     return (
@@ -219,6 +398,11 @@ export default function RecordsClient({
                     >
                         <tab.icon className={`w-4 h-4 ${currentType === tab.id ? 'text-emerald-500' : ''}`} />
                         <span>{tab.name}</span>
+                        {(tab.count || 0) > 0 && (
+                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-md ${currentType === tab.id ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
+                                {(tab.count || 0).toLocaleString()}
+                            </span>
+                        )}
                     </button>
                 ))}
             </div>
@@ -227,6 +411,23 @@ export default function RecordsClient({
             <div className="bg-white md:p-6 p-3 md:rounded-[2rem] rounded-2xl border border-gray-100">
                 <div className="flex flex-col lg:flex-row justify-between items-center gap-6">
                     <div className="flex flex-col sm:flex-row gap-4 flex-1 w-full lg:max-w-3xl">
+                        {/* Organization Filter (Super Admin) */}
+                        {organizations && organizations.length > 0 && (
+                            <div className="relative flex-1 min-w-[200px]">
+                                <Building2 className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                                <select
+                                    className="w-full pl-11 pr-4 py-3.5 bg-gray-50/50 border border-gray-200 rounded-xl focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all outline-none font-bold text-sm appearance-none cursor-pointer"
+                                    onChange={(e) => handleOrgChange(e.target.value)}
+                                    value={searchParams.orgId || ''}
+                                >
+                                    <option value="">All Organizations</option>
+                                    {organizations.map(org => (
+                                        <option key={org._id} value={org._id}>{org.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
+
                         <div className="relative flex-[2]">
                             <Search className="absolute left-5 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
                             <input
@@ -242,15 +443,39 @@ export default function RecordsClient({
                             <Filter className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                             <select
                                 className="w-full pl-11 pr-4 py-3.5 bg-gray-50/50 border border-gray-200 rounded-xl focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all outline-none font-bold text-sm appearance-none cursor-pointer"
-                                onChange={(e) => handleFilterChange(currentType === 'chanda' ? 'month' : 'majlis', e.target.value)}
-                                value={currentType === 'chanda' ? (searchParams.month || '') : (searchParams.majlis || '')}
+                                onChange={(e) => handleFilterChange('month', e.target.value)}
+                                value={searchParams.month || ''}
                             >
-                                <option value="">All {currentType === 'chanda' ? 'Months' : 'Majlis'}</option>
-                                {(currentType === 'chanda' ? MONTHS : MAJLIS_OPTIONS).map(opt => (
-                                    <option key={opt} value={opt}>{opt}</option>
-                                ))}
+                                <option value="">All Months</option>
+                                {currentType === 'chanda' ? (
+                                    // For ChandaAm, show MMMYYYY format options
+                                    MONTH_YEAR_OPTIONS.map(opt => (
+                                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                    ))
+                                ) : (
+                                    // For Tajnid, keep simple month names
+                                    MONTHS.map(opt => (
+                                        <option key={opt} value={opt}>{opt}</option>
+                                    ))
+                                )}
                             </select>
                         </div>
+
+                        {currentType === 'tajnid' && (
+                            <div className="relative flex-1">
+                                <Filter className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                                <select
+                                    className="w-full pl-11 pr-4 py-3.5 bg-gray-50/50 border border-gray-200 rounded-xl focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 transition-all outline-none font-bold text-sm appearance-none cursor-pointer"
+                                    onChange={(e) => handleFilterChange('majlis', e.target.value)}
+                                    value={searchParams.majlis || ''}
+                                >
+                                    <option value="">All Majlis</option>
+                                    {MAJLIS_OPTIONS.map(opt => (
+                                        <option key={opt} value={opt}>{opt}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
                     </div>
 
                     <div className="flex items-center gap-3 w-full lg:w-auto">
@@ -277,12 +502,12 @@ export default function RecordsClient({
                             Add New
                         </button>
                         <button
-                            onClick={exportExcel}
+                            onClick={() => setShowExportModal(true)}
                             disabled={isExporting}
                             className="flex-1 lg:flex-none inline-flex items-center justify-center px-6 py-3.5 bg-white border border-gray-200 text-gray-700 rounded-xl hover:bg-gray-50 transition-all font-bold text-sm disabled:opacity-50"
                         >
                             {isExporting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Download className="w-4 h-4 mr-2 text-emerald-600" />}
-                            {isExporting ? 'Exporting...' : 'Export All'}
+                            {isExporting ? 'Exporting...' : 'Export'}
                         </button>
                     </div>
                 </div>
@@ -390,6 +615,143 @@ export default function RecordsClient({
                         config={alertConfig}
                         onClose={() => setAlertConfig(prev => ({ ...prev, show: false }))}
                     />
+                )}
+                {showExportModal && currentType === 'chanda' && (
+                    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+                        >
+                            <div className="p-6 border-b border-gray-100">
+                                <div className="flex items-center justify-between">
+                                    <h3 className="text-xl font-black text-gray-900">Export ChandaAm Records</h3>
+                                    <button
+                                        onClick={() => setShowExportModal(false)}
+                                        className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                                    >
+                                        <X className="w-5 h-5 text-gray-400" />
+                                    </button>
+                                </div>
+                                <p className="text-sm text-gray-500 mt-2">Customize your export with filters and column selection</p>
+                            </div>
+
+                            <div className="p-6 space-y-6">
+                                {/* Filter Section */}
+                                <div className="space-y-4">
+                                    <h4 className="text-sm font-black text-gray-700 uppercase tracking-widest">Filters</h4>
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="text-xs font-bold text-gray-600 block mb-2">Year</label>
+                                            <select
+                                                value={exportFilters.year}
+                                                onChange={(e) => setExportFilters(prev => ({ ...prev, year: e.target.value }))}
+                                                className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500"
+                                            >
+                                                <option value="">All Years</option>
+                                                {[...Array(5)].map((_, i) => {
+                                                    const year = new Date().getFullYear() - i
+                                                    return <option key={year} value={year}>{year}</option>
+                                                })}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="text-xs font-bold text-gray-600 block mb-2">Month</label>
+                                            <select
+                                                value={exportFilters.month}
+                                                onChange={(e) => setExportFilters(prev => ({ ...prev, month: e.target.value }))}
+                                                className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500"
+                                            >
+                                                <option value="">All Months</option>
+                                                {MONTH_ABBR.map((month, idx) => (
+                                                    <option key={month} value={month}>{MONTHS[idx]}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Column Selection */}
+                                <div className="space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <h4 className="text-sm font-black text-gray-700 uppercase tracking-widest">Columns to Export</h4>
+                                        <div className="flex gap-2">
+                                            <button
+                                                onClick={() => setSelectedColumns(CHANDA_EXPORT_COLUMNS.map(c => c.id))}
+                                                className="text-xs font-bold text-emerald-600 hover:text-emerald-700"
+                                            >
+                                                Select All
+                                            </button>
+                                            <span className="text-gray-300">|</span>
+                                            <button
+                                                onClick={() => setSelectedColumns([])}
+                                                className="text-xs font-bold text-red-500 hover:text-red-700"
+                                            >
+                                                Clear All
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3 max-h-64 overflow-y-auto p-2 bg-gray-50 rounded-lg">
+                                        {CHANDA_EXPORT_COLUMNS.map(col => (
+                                            <label
+                                                key={col.id}
+                                                className="flex items-center space-x-2 p-2 hover:bg-white rounded-lg cursor-pointer transition-colors"
+                                            >
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedColumns.includes(col.id)}
+                                                    onChange={(e) => {
+                                                        if (e.target.checked) {
+                                                            setSelectedColumns(prev => [...prev, col.id])
+                                                        } else {
+                                                            setSelectedColumns(prev => prev.filter(id => id !== col.id))
+                                                        }
+                                                    }}
+                                                    className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                                                />
+                                                <span className="text-sm font-bold text-gray-700">{col.label}</span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                    <p className="text-xs text-gray-500 italic">
+                                        {selectedColumns.length === 0 ? 'All columns will be exported' : `${selectedColumns.length} column(s) selected`}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="p-6 border-t border-gray-100 flex gap-3">
+                                <button
+                                    onClick={() => setShowExportModal(false)}
+                                    className="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl font-bold text-sm hover:bg-gray-200 transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        const filters: any = {}
+                                        if (exportFilters.year) filters.year = exportFilters.year
+                                        if (exportFilters.month) filters.month = exportFilters.month
+                                        exportExcel(filters, selectedColumns.length > 0 ? selectedColumns : undefined)
+                                    }}
+                                    disabled={isExporting}
+                                    className="flex-1 py-3 bg-emerald-600 text-white rounded-xl font-bold text-sm hover:bg-emerald-700 transition-colors disabled:opacity-50 flex items-center justify-center"
+                                >
+                                    {isExporting ? (
+                                        <>
+                                            <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                                            Exporting...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Download className="w-4 h-4 mr-2" />
+                                            Export to Excel
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+                        </motion.div>
+                    </div>
                 )}
             </AnimatePresence>
         </div>
@@ -679,6 +1041,98 @@ function RecordModal({ type, initialData, onClose, refresh }: { type: string, in
     const [success, setSuccess] = useState(false)
     const [mode, setMode] = useState<'single' | 'multiple'>(initialData ? 'single' : 'single') // Force single for editing
 
+    // Member Search State - Single
+    const [memberSearch, setMemberSearch] = useState('')
+    const [memberResults, setMemberResults] = useState<any[]>([])
+    const [totalMemberResults, setTotalMemberResults] = useState(0)
+    const [showResults, setShowResults] = useState(false)
+    const [searchMajlis, setSearchMajlis] = useState('')
+    const [selectedName, setSelectedName] = useState(initialData?.name || '')
+    const [selectedChandaNo, setSelectedChandaNo] = useState(initialData?.chandaNumber || '')
+
+    // Member Search State - Multiple
+    const [multiSearchIndex, setMultiSearchIndex] = useState<number | null>(null)
+    const [multiMemberResults, setMultiMemberResults] = useState<any[]>([])
+    const [multiTotalResults, setMultiTotalResults] = useState(0)
+    const [multiShowResults, setMultiShowResults] = useState(false)
+    const [multiSearchMajlis, setMultiSearchMajlis] = useState('')
+
+    // New: Multi-month selection state
+    const [selectedYear, setSelectedYear] = useState<number>(() => {
+        // Try to extract year from existing monthPaidFor, otherwise use current year
+        if (initialData?.monthPaidFor) {
+            const match = initialData.monthPaidFor.match(/\d{4}/)
+            if (match) return parseInt(match[0])
+        }
+        return new Date().getFullYear()
+    })
+
+    const [selectedMonths, setSelectedMonths] = useState<string[]>(() => {
+        if (initialData?.monthPaidFor) {
+            // Parse existing monthPaidFor (could be comma-separated)
+            return initialData.monthPaidFor.split(',').map((m: string) => m.trim()).filter((m: string) => m)
+        }
+        return []
+    })
+
+    const handleMemberSearch = async (term: string, majl: string = searchMajlis) => {
+        setMemberSearch(term)
+        if (term.length > 1 || majl) {
+            const res = await getTajnidRecords(
+                term || undefined,
+                1,
+                -1, // Unlimited results
+                majl ? { majlis: majl } : undefined
+            )
+            setMemberResults(res.records)
+            setTotalMemberResults(res.total)
+            setShowResults(true)
+        } else {
+            setMemberResults([])
+            setTotalMemberResults(0)
+            setShowResults(false)
+        }
+    }
+
+    const handleMajlisSearchChange = (val: string) => {
+        setSearchMajlis(val)
+        handleMemberSearch(memberSearch, val)
+    }
+
+    const handleMultiMemberSearch = async (term: string, index: number, majl: string = multiSearchMajlis) => {
+        if (term.length > 1 || majl) {
+            setMultiSearchIndex(index)
+            const res = await getTajnidRecords(
+                term || undefined,
+                1,
+                -1,
+                majl ? { majlis: majl } : undefined
+            )
+            setMultiMemberResults(res.records)
+            setMultiTotalResults(res.total)
+            setMultiShowResults(true)
+        } else {
+            setMultiMemberResults([])
+            setMultiTotalResults(0)
+            setMultiShowResults(false)
+        }
+    }
+
+    const selectMember = (member: any) => {
+        setSelectedName(`${member.surname} ${member.otherNames}`)
+        setSelectedChandaNo(member.chandaNo || '')
+        setMemberSearch('')
+        setShowResults(false)
+    }
+
+    const selectMultiMember = (member: any, index: number) => {
+        handleUpdateRow(index, 'name', `${member.surname} ${member.otherNames}`)
+        handleUpdateRow(index, 'chandaNumber', member.chandaNo || '')
+        setMultiShowResults(false)
+        setMultiSearchIndex(null)
+    }
+
+
     useEffect(() => {
         if (initialData && type === 'chanda') {
             const breakdown: { type: string, amount: number }[] = []
@@ -770,6 +1224,25 @@ function RecordModal({ type, initialData, onClose, refresh }: { type: string, in
                 })
                 const total = singleBreakdown.reduce((sum, item) => sum + item.amount, 0)
                 formData.set('totalNgn', String(total))
+
+                // New: Set monthPaidFor from selectedMonths (comma-separated, sorted)
+                if (selectedMonths.length > 0) {
+                    // Sort months chronologically
+                    const sortedMonths = [...selectedMonths].sort((a, b) => {
+                        const yearA = parseInt(a.slice(-4))
+                        const yearB = parseInt(b.slice(-4))
+                        if (yearA !== yearB) return yearA - yearB
+                        const monthA = MONTH_ABBR.indexOf(a.slice(0, 3))
+                        const monthB = MONTH_ABBR.indexOf(b.slice(0, 3))
+                        return monthA - monthB
+                    })
+                    formData.set('monthPaidFor', sortedMonths.join(', '))
+                } else {
+                    // Validation: MonthPaidFor is mandatory for ChandaAm
+                    setError('Please select at least one month for this contribution.')
+                    setSubmitting(false)
+                    return
+                }
             }
 
             if (initialData) {
@@ -854,24 +1327,172 @@ function RecordModal({ type, initialData, onClose, refresh }: { type: string, in
                             </div>
                         </div>
 
-                        <form onSubmit={handleSubmit} className="md:p-8 p-6 overflow-y-auto space-y-6 flex-1">
+                        <form onSubmit={handleSubmit} className="md:p-8 p-3 overflow-y-auto space-y-6 flex-1">
                             {error && <div className="p-4 bg-red-50 text-red-600 rounded-xl text-xs font-bold border border-red-100">{error}</div>}
 
                             {mode === 'single' ? (
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                     {type === 'chanda' ? (
                                         <>
-                                            <div className="md:col-span-2">
-                                                <Input label="Full Name" name="name" required placeholder="Member Name" defaultValue={initialData?.name} />
+                                            <div className="md:col-span-2 relative">
+                                                {!initialData && (
+                                                    <div className="bg-emerald-50/50 md:p-4 p-3 rounded-xl border border-emerald-100 relative">
+                                                        <div className="flex justify-between items-center mb-2">
+                                                            <label className="text-[10px] font-black text-emerald-600 uppercase tracking-widest block">Find Member to Link</label>
+                                                            {showResults && <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{totalMemberResults} MATCHES FOUND</span>}
+                                                        </div>
+                                                        <div className="flex gap-2 relative">
+                                                            <div className="relative flex-1">
+                                                                <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-emerald-600" />
+                                                                <input
+                                                                    type="text"
+                                                                    placeholder="Search by name..."
+                                                                    className="w-full pl-10 pr-4 py-3 bg-white border border-emerald-200 rounded-lg focus:ring-2 focus:ring-emerald-500/20 outline-none text-sm font-bold text-emerald-900 placeholder:text-emerald-300/70"
+                                                                    value={memberSearch}
+                                                                    onChange={(e) => handleMemberSearch(e.target.value)}
+                                                                    onFocus={() => {
+                                                                        if (memberSearch || searchMajlis) setShowResults(true)
+                                                                    }}
+                                                                />
+                                                            </div>
+                                                            <div className="w-1/3">
+                                                                <select
+                                                                    value={searchMajlis}
+                                                                    onChange={(e) => handleMajlisSearchChange(e.target.value)}
+                                                                    className="w-full px-3 py-3 bg-white border border-emerald-200 rounded-lg focus:ring-2 focus:ring-emerald-500/20 outline-none text-xs font-bold text-emerald-900"
+                                                                >
+                                                                    <option value="">All Majlis</option>
+                                                                    {MAJLIS_OPTIONS.map(opt => (
+                                                                        <option key={opt} value={opt}>{opt}</option>
+                                                                    ))}
+                                                                </select>
+                                                            </div>
+                                                        </div>
+                                                        {showResults && (memberResults.length > 0) && (
+                                                            <div className="absolute z-[60] left-4 right-4 mt-2 bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden max-h-60 overflow-y-auto">
+                                                                {memberResults.length > 0 ? (
+                                                                    memberResults.map(m => (
+                                                                        <button
+                                                                            key={m._id}
+                                                                            type="button"
+                                                                            onClick={() => selectMember(m)}
+                                                                            className="w-full text-left px-4 py-3 hover:bg-emerald-50 flex items-center justify-between border-b border-gray-50 last:border-0 transition-colors"
+                                                                        >
+                                                                            <div>
+                                                                                <div className="font-bold text-sm text-gray-900">{m.surname} {m.otherNames}</div>
+                                                                                <div className="text-[10px] text-gray-400 font-bold uppercase">{m.majlis} • {m.presence}</div>
+                                                                            </div>
+                                                                            <div className="text-xs font-mono font-bold text-emerald-600">#{m.chandaNo}</div>
+                                                                        </button>
+                                                                    ))
+                                                                ) : (
+                                                                    <div className="p-4 text-center text-xs text-gray-400 font-bold">No members found</div>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
                                             </div>
-                                            <Input label="Chanda Number" name="chandaNumber" placeholder="e.g. 1234" defaultValue={initialData?.chandaNumber} />
-                                            <Input label="Receipt Number" name="receiptNo" placeholder="REC-001" defaultValue={initialData?.receiptNo} />
-                                            <div className="md:col-span-1">
-                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2 font-medium ml-1">Month</label>
-                                                <select name="monthPaidFor" defaultValue={initialData?.monthPaidFor} className="w-full px-5 py-3.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold text-sm">
-                                                    <option value="">Select Month</option>
-                                                    {MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
-                                                </select>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <Input
+                                                    label="Full Name"
+                                                    name="name"
+                                                    required
+                                                    placeholder="Member Name"
+                                                    value={selectedName}
+                                                    onChange={(e: any) => setSelectedName(e.target.value)}
+                                                />
+                                                <Input
+                                                    label="Chanda Number"
+                                                    name="chandaNumber"
+                                                    placeholder="e.g. 1234"
+                                                    value={selectedChandaNo}
+                                                    onChange={(e: any) => setSelectedChandaNo(e.target.value)}
+                                                />
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <Input label="Receipt Number" name="receiptNo" placeholder="REC-001" defaultValue={initialData?.receiptNo} />
+                                                <div className="md:col-span-1">
+                                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-1 font-medium ml-1">
+                                                        Months Paid For {selectedMonths.length > 0 && `(${selectedMonths.length})`}
+                                                    </label>
+                                                    <div className="relative">
+                                                        <div className="w-full px-5 py-3.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold text-sm cursor-pointer hover:bg-gray-100 transition-colors flex items-center justify-between"
+                                                            onClick={() => {
+                                                                const dropdown = document.getElementById('month-dropdown')
+                                                                if (dropdown) dropdown.classList.toggle('hidden')
+                                                            }}
+                                                        >
+                                                            <span className="truncate">
+                                                                {selectedMonths.length === 0 ? 'Select Months' : selectedMonths.slice(0, 2).join(', ') + (selectedMonths.length > 2 ? ` +${selectedMonths.length - 2}` : '')}
+                                                            </span>
+                                                            <ChevronRight className="w-4 h-4 transform rotate-90" />
+                                                        </div>
+                                                        <div id="month-dropdown" className="hidden absolute z-50 mt-2 w-full bg-white border border-gray-200 rounded-xl shadow-xl max-h-72 overflow-hidden">
+                                                            <div className="p-3 border-b border-gray-100 sticky top-0 bg-white z-10">
+                                                                <div className="flex justify-between items-center mb-2">
+                                                                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Select Year & Months</span>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation()
+                                                                            setSelectedMonths([])
+                                                                        }}
+                                                                        className="text-[10px] font-bold text-red-500 hover:text-red-700"
+                                                                    >
+                                                                        Clear All
+                                                                    </button>
+                                                                </div>
+                                                                <select
+                                                                    value={selectedYear}
+                                                                    onChange={(e) => {
+                                                                        const newYear = parseInt(e.target.value)
+                                                                        setSelectedYear(newYear)
+                                                                        // Update existing selections to new year
+                                                                        setSelectedMonths(prev => prev.map(m => {
+                                                                            const monthPart = m.slice(0, 3)
+                                                                            return `${monthPart}${newYear}`
+                                                                        }))
+                                                                    }}
+                                                                    onClick={(e) => e.stopPropagation()}
+                                                                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500"
+                                                                >
+                                                                    {[...Array(5)].map((_, i) => {
+                                                                        const year = new Date().getFullYear() - i
+                                                                        return <option key={year} value={year}>{year}</option>
+                                                                    })}
+                                                                </select>
+                                                            </div>
+                                                            <div className="overflow-y-auto max-h-48">
+                                                                {MONTH_ABBR.map((month, idx) => {
+                                                                    const monthValue = `${month}${selectedYear}`
+                                                                    return (
+                                                                        <label
+                                                                            key={month}
+                                                                            className="flex items-center px-4 py-2 hover:bg-emerald-50 cursor-pointer transition-colors"
+                                                                            onClick={(e) => e.stopPropagation()}
+                                                                        >
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                checked={selectedMonths.includes(monthValue)}
+                                                                                onChange={(e) => {
+                                                                                    e.stopPropagation()
+                                                                                    if (e.target.checked) {
+                                                                                        setSelectedMonths(prev => [...prev, monthValue])
+                                                                                    } else {
+                                                                                        setSelectedMonths(prev => prev.filter(m => m !== monthValue))
+                                                                                    }
+                                                                                }}
+                                                                                className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 mr-3"
+                                                                            />
+                                                                            <span className="text-sm font-bold text-gray-700">{MONTHS[idx]} {selectedYear}</span>
+                                                                        </label>
+                                                                    )
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
                                             </div>
                                             <Input label="Date" name="date" type="date" defaultValue={initialData?.date ? new Date(initialData.date).toISOString().split('T')[0] : ''} />
                                             <div className="md:col-span-2 space-y-4">
@@ -955,79 +1576,167 @@ function RecordModal({ type, initialData, onClose, refresh }: { type: string, in
                                                 key={i}
                                                 initial={{ opacity: 0, x: -10 }}
                                                 animate={{ opacity: 1, x: 0 }}
-                                                className="p-4 bg-gray-50 rounded-2xl border border-gray-200 relative group/row"
+                                                className="md:p-4 p-3 bg-gray-50 rounded-2xl border border-gray-200 relative group/row"
                                             >
                                                 {type === 'chanda' ? (
-                                                    <div className="space-y-4">
-                                                        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                                                            <div className="md:col-span-2">
-                                                                <MiniInput label="Full Name" value={rec.name} onChange={(v: string) => handleUpdateRow(i, 'name', v)} required />
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                        <div className="md:col-span-2 relative">
+                                                            <div className="mb-3 bg-emerald-50/50 md:p-4 p-3 rounded-xl border border-emerald-100 relative">
+                                                                <div className="flex justify-between items-center mb-2">
+                                                                    <label className="text-[10px] font-black text-emerald-600 uppercase tracking-widest block">Find Member to Link</label>
+                                                                    {(multiShowResults && multiSearchIndex === i) && <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{multiTotalResults} MATCHES FOUND</span>}
+                                                                </div>
+                                                                <div className="flex gap-2 relative">
+                                                                    <div className="relative flex-1">
+                                                                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-emerald-600" />
+                                                                        <input
+                                                                            type="text"
+                                                                            placeholder="Search by name..."
+                                                                            className="w-full pl-10 pr-4 py-3 bg-white border border-emerald-200 rounded-lg focus:ring-2 focus:ring-emerald-500/20 outline-none text-sm font-bold text-emerald-900 placeholder:text-emerald-300/70"
+                                                                            onChange={(e) => handleMultiMemberSearch(e.target.value, i)}
+                                                                            onFocus={(e) => {
+                                                                                setMultiSearchIndex(i)
+                                                                                if (e.target.value) handleMultiMemberSearch(e.target.value, i)
+                                                                            }}
+                                                                        />
+                                                                    </div>
+                                                                    <div className="w-1/3">
+                                                                        <select
+                                                                            value={multiSearchMajlis}
+                                                                            onChange={(e) => {
+                                                                                setMultiSearchMajlis(e.target.value)
+                                                                                // Auto-trigger search when majlis changes
+                                                                                const currentInput = document.querySelector(`input[placeholder="Search by name..."]`) as HTMLInputElement
+                                                                                if (currentInput?.value || e.target.value) {
+                                                                                    handleMultiMemberSearch(currentInput?.value || '', i, e.target.value)
+                                                                                }
+                                                                            }}
+                                                                            className="w-full px-3 py-3 bg-white border border-emerald-200 rounded-lg focus:ring-2 focus:ring-emerald-500/20 outline-none text-xs font-bold text-emerald-900"
+                                                                        >
+                                                                            <option value="">All Majlis</option>
+                                                                            {MAJLIS_OPTIONS.map(opt => (
+                                                                                <option key={opt} value={opt}>{opt}</option>
+                                                                            ))}
+                                                                        </select>
+                                                                    </div>
+                                                                </div>
+                                                                {(multiShowResults && multiSearchIndex === i && multiMemberResults.length > 0) && (
+                                                                    <div className="absolute z-[60] left-4 right-4 mt-2 bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden max-h-60 overflow-y-auto">
+                                                                        {multiMemberResults.map(m => (
+                                                                            <button
+                                                                                key={m._id}
+                                                                                type="button"
+                                                                                onClick={() => selectMultiMember(m, i)}
+                                                                                className="w-full text-left px-4 py-3 hover:bg-emerald-50 flex items-center justify-between border-b border-gray-50 last:border-0 transition-colors"
+                                                                            >
+                                                                                <div>
+                                                                                    <div className="font-bold text-sm text-gray-900">{m.surname} {m.otherNames}</div>
+                                                                                    <div className="text-[10px] text-gray-400 font-bold uppercase">{m.majlis} • {m.presence}</div>
+                                                                                </div>
+                                                                                <div className="text-xs font-mono font-bold text-emerald-600">#{m.chandaNo}</div>
+                                                                            </button>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
                                                             </div>
-                                                            <MiniInput label="Chanda #" value={rec.chandaNumber} onChange={(v: string) => handleUpdateRow(i, 'chandaNumber', v)} />
-                                                            <MiniInput label="Receipt" value={rec.receiptNo} onChange={(v: string) => handleUpdateRow(i, 'receiptNo', v)} />
-                                                            <div className="flex flex-col space-y-1">
-                                                                <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest pl-1">Month</label>
+                                                            <div className="grid grid-cols-2 gap-2">
+                                                                <Input
+                                                                    label="Full Name"
+                                                                    required
+                                                                    placeholder="Member Name"
+                                                                    value={rec.name}
+                                                                    onChange={(e: any) => handleUpdateRow(i, 'name', e.target.value)}
+                                                                />
+                                                                <Input
+                                                                    label="Full Name"
+                                                                    required
+                                                                    placeholder="Member Name"
+                                                                    value={rec.name}
+                                                                    onChange={(e: any) => handleUpdateRow(i, 'name', e.target.value)}
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                        <div className="grid grid-cols-2 gap-2">
+                                                            <Input
+                                                                label="Chanda Number"
+                                                                placeholder="e.g. 1234"
+                                                                value={rec.chandaNumber}
+                                                                onChange={(e: any) => handleUpdateRow(i, 'chandaNumber', e.target.value)}
+                                                            />
+                                                            <Input
+                                                                label="Receipt Number"
+                                                                placeholder="REC-001"
+                                                                value={rec.receiptNo}
+                                                                onChange={(e: any) => handleUpdateRow(i, 'receiptNo', e.target.value)}
+                                                            />
+                                                        </div>
+                                                        <div className="grid grid-cols-2 gap-2">
+                                                            <div className="md:col-span-1">
+                                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2 font-medium ml-1">Month</label>
                                                                 <select
                                                                     value={rec.monthPaidFor}
                                                                     onChange={(e) => handleUpdateRow(i, 'monthPaidFor', e.target.value)}
-                                                                    className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-xs font-bold outline-none focus:border-emerald-500 transition-colors"
+                                                                    className="w-full px-5 py-3.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold text-sm"
                                                                 >
-                                                                    <option value="">Select</option>
+                                                                    <option value="">Select Month</option>
                                                                     {MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
                                                                 </select>
                                                             </div>
+                                                            <Input
+                                                                label="Date"
+                                                                type="date"
+                                                                value={rec.date}
+                                                                onChange={(e: any) => handleUpdateRow(i, 'date', e.target.value)}
+                                                            />
                                                         </div>
-                                                        <div className="bg-white/50 p-4 rounded-xl space-y-3">
-                                                            <div className="flex items-center justify-between">
-                                                                <h4 className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Financial Breakdown</h4>
+                                                        <div className="md:col-span-2 space-y-4">
+                                                            <div className="flex items-center justify-between border-b border-gray-100 pb-2">
+                                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block">Financial Breakdown</label>
                                                                 <button
                                                                     type="button"
                                                                     onClick={() => handleAddBreakdownItem(i)}
-                                                                    className="text-[9px] font-black text-emerald-600 uppercase tracking-widest flex items-center"
+                                                                    className="text-[10px] font-black text-emerald-600 uppercase tracking-widest hover:text-emerald-700 flex items-center"
                                                                 >
-                                                                    <Plus className="w-2.5 h-2.5 mr-1" /> Add Fund
+                                                                    <Plus className="w-3 h-3 mr-1" /> Add Fund
                                                                 </button>
                                                             </div>
-                                                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                                                                {(rec.breakdown || []).map((b: any, bIdx: number) => (
-                                                                    <div key={bIdx} className="flex items-end space-x-2 bg-white border border-gray-100 p-2 rounded-lg relative group/b">
+                                                            <div className="space-y-3">
+                                                                {(rec.breakdown || []).map((item: any, idx: number) => (
+                                                                    <div key={idx} className="flex items-end space-x-3 group/item">
                                                                         <div className="flex-1">
+                                                                            <label className="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-1 block ml-1">Fund Type</label>
                                                                             <select
-                                                                                value={b.type}
-                                                                                onChange={(e) => handleUpdateBreakdown(i, bIdx, 'type', e.target.value)}
-                                                                                className="w-full bg-transparent text-[10px] font-bold outline-none border-b border-gray-100 focus:border-emerald-500"
+                                                                                value={item.type}
+                                                                                onChange={(e) => handleUpdateBreakdown(i, idx, 'type', e.target.value)}
+                                                                                className="w-full px-4 py-2 bg-gray-50 border border-gray-200 rounded-xl focus:ring-4 focus:ring-emerald-500/10 outline-none font-bold text-sm"
                                                                             >
                                                                                 {CHANDA_FUNDS.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
                                                                             </select>
                                                                         </div>
-                                                                        <div className="w-20">
-                                                                            <input
+                                                                        <div className="w-32">
+                                                                            <MiniInput
+                                                                                label="Amount"
                                                                                 type="number"
-                                                                                value={b.amount}
-                                                                                onChange={(e) => handleUpdateBreakdown(i, bIdx, 'amount', e.target.value)}
-                                                                                className="w-full bg-transparent text-[10px] font-black text-right outline-none placeholder:text-gray-300"
-                                                                                placeholder="0"
+                                                                                value={item.amount}
+                                                                                onChange={(v: string) => handleUpdateBreakdown(i, idx, 'amount', v)}
                                                                             />
                                                                         </div>
                                                                         {(rec.breakdown || []).length > 1 && (
                                                                             <button
                                                                                 type="button"
-                                                                                onClick={() => handleRemoveBreakdownItem(bIdx, i)}
-                                                                                className="absolute -right-2 -top-2 w-4 h-4 bg-white border border-gray-100 text-gray-300 hover:text-red-500 rounded-full flex items-center justify-center shadow-sm opacity-0 group-hover/b:opacity-100 transition-opacity"
+                                                                                onClick={() => handleRemoveBreakdownItem(idx, i)}
+                                                                                className="p-2 mb-0.5 text-gray-300 hover:text-red-500 transition-colors"
                                                                             >
-                                                                                <X className="w-2 h-2" />
+                                                                                <X className="w-4 h-4" />
                                                                             </button>
                                                                         )}
                                                                     </div>
                                                                 ))}
                                                             </div>
-                                                            <div className="flex justify-between items-center text-[10px] font-black pt-2 border-t border-gray-100">
-                                                                <span className="text-gray-400 uppercase tracking-widest">Total Amount</span>
-                                                                <span className="text-gray-900">₦{(rec.breakdown || []).reduce((sum: number, b: any) => sum + (b.amount || 0), 0).toLocaleString('en-GB')}</span>
+                                                            <div className="pt-4 border-t border-gray-100 flex justify-between items-center text-gray-900">
+                                                                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400">Total Calculated</span>
+                                                                <span className="text-xl font-black tabular-nums">₦{(rec.breakdown || []).reduce((sum: number, item: any) => sum + item.amount, 0).toLocaleString('en-GB')}</span>
                                                             </div>
-                                                        </div>
-                                                        <div className="grid grid-cols-2 gap-4">
-                                                            <MiniInput label="Date" type="date" value={rec.date} onChange={(v: string) => handleUpdateRow(i, 'date', v)} />
                                                         </div>
                                                     </div>
                                                 ) : (
