@@ -624,7 +624,25 @@ export async function getAllRecordsForExport(type: 'chanda' | 'tajnid', query?: 
     }
 
     if (type === 'chanda' && filters?.month) {
-        match.monthPaidFor = filters.month
+        // Inclusive month filtering: match records where monthPaidFor contains the specified month
+        // Supports various formats: SEP, September, SEP2024
+        const months = filters.month.split(',').map(m => m.trim()).filter(m => m)
+
+        if (months.length > 0) {
+            // Normalize each search month to abbreviated format
+            const normalizedMonths = months.map(m => normalizeMonth(m))
+
+            // Build regex patterns for each normalized month
+            const regexPatterns = normalizedMonths.map(month => {
+                // Escape special regex characters and match month at word boundary
+                const escaped = month.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+                return `(^|,\\s*)${escaped}(\\d{4})?(\\s*,|\\s*$)`
+            })
+
+            // Combine patterns with OR
+            const combinedPattern = regexPatterns.join('|')
+            match.monthPaidFor = { $regex: combinedPattern, $options: 'i' }
+        }
     }
 
     if (type === 'tajnid') {
