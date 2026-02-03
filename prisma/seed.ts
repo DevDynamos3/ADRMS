@@ -61,3 +61,7 @@ main()
     console.error(e)
     process.exit(1)
   })
+
+  // git remote -v
+  // git push origin main
+  // git push personal main
